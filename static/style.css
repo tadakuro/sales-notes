@@ -1,0 +1,27 @@
+*{box-sizing:border-box}body{font-family:system-ui,Arial;margin:0;background:#f1f3f6;color:#222}
+header{background:#1a73e8;color:#fff;padding:10px 14px;position:sticky;top:0;z-index:5}
+header h1{margin:0 0 6px;font-size:20px}
+nav{display:flex;gap:6px;flex-wrap:wrap}
+.tab{border:0;padding:8px 14px;border-radius:8px;cursor:pointer;background:#ffffff33;color:#fff;font-weight:600}
+.tab.active{background:#fff;color:#1a73e8}
+#statsBar{margin-top:6px;font-size:13px;opacity:.95}
+.tabpage{padding:12px;max-width:1000px;margin:auto}
+.hidden{display:none!important}
+.card{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 4px #0001}
+.pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.pos-grid{grid-template-columns:1fr}}
+.row{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
+input{padding:9px 10px;border:1px solid #ccc;border-radius:8px;font-size:15px;flex:1;min-width:120px}
+button{padding:9px 14px;border-radius:8px;border:1px solid #ccc;background:#fff;cursor:pointer;font-size:14px}
+button.primary,button:not([onclick*="el"]):hover{background:#1a73e8;color:#fff;border-color:#1a73e8}
+button.primary{background:#1a73e8;color:#fff;border-color:#1a73e8}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border-bottom:1px solid #eee;padding:7px 5px;text-align:left}
+.hint{color:#666;font-size:13px}
+#suggest{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+#suggest button{text-align:left}
+.modal{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;padding:12px}
+.modal-box{background:#fff;border-radius:12px;padding:16px;min-width:280px;max-width:420px;width:100%}
+.modal-box label{display:block;margin:8px 0;font-size:14px}
+#receipt pre{background:#fafafa;border:1px dashed #999;padding:10px;white-space:pre-wrap}
+@media print{header,nav,#tab-products,#tab-sales,#tab-settings,.pos-grid .card:first-child{display:none}.card{box-shadow:none}}

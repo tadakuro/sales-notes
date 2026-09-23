@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cashier POS</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🧾 <span id="shopTitle">Cashier POS</span></h1>
+  <nav>
+    <button class="tab active" data-tab="pos">POS</button>
+    <button class="tab" data-tab="products">Products</button>
+    <button class="tab" data-tab="sales">Sales</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+  <div id="statsBar">Today: <b id="stTotal">–</b> · <span id="stCount">–</span> sales · Low stock: <b id="stLow">–</b></div>
+</header>
+
+<!-- POS -->
+<section id="tab-pos" class="tabpage">
+  <div class="pos-grid">
+    <div class="card">
+      <h2>Sell</h2>
+      <div class="row">
+        <input id="barcode" placeholder="Scan barcode or type + Enter 🔫" autocomplete="off">
+        <button onclick="lookupBarcode()">Add</button>
+      </div>
+      <div class="row">
+        <input id="search" placeholder="Search name..." oninput="renderSearchSuggest()">
+      </div>
+      <div id="suggest"></div>
+      <p class="hint">USB barcode scanner works automatically — just click the barcode box and scan. If barcode is new, you'll be asked to type the product manually.</p>
+    </div>
+    <div class="card">
+      <h2>Cart</h2>
+      <table id="cartTable"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Sub</th><th></th></tr></thead><tbody></tbody></table>
+      <h3>Total: <span id="cartTotal">0.00</span></h3>
+      <div class="row">
+        <input id="payment" type="number" min="0" step="0.01" placeholder="Payment amount">
+        <button onclick="quickCash()">Exact</button>
+      </div>
+      <div class="row"><input id="cashier" placeholder="Cashier name (optional)"></div>
+      <div>Change: <b id="changeAmt">0.00</b></div>
+      <div class="row">
+        <button class="primary" onclick="checkout()">Charge / Print Receipt</button>
+        <button onclick="clearCart()">Clear</button>
+      </div>
+    </div>
+  </div>
+  <div id="receipt" class="card hidden">
+    <h2>Receipt <span id="rId"></span></h2>
+    <pre id="rBody"></pre>
+    <div class="row"><button onclick="window.print()">🖨️ Print</button><button onclick="document.getElementById('receipt').classList.add('hidden')">Close</button></div>
+  </div>
+</section>
+
+<!-- PRODUCTS -->
+<section id="tab-products" class="tabpage hidden">
+  <div class="card">
+    <h2>Products / Barcode database</h2>
+    <div class="row">
+      <input id="pSearch" placeholder="Search barcode / name..." oninput="loadProducts()">
+      <button onclick="openProductModal()">+ New product</button>
+    </div>
+    <table id="prodTable"><thead><tr><th>Barcode</th><th>Name</th><th>Price</th><th>Stock</th><th>Category</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- SALES -->
+<section id="tab-sales" class="tabpage hidden">
+  <div class="card">
+    <h2>Sales reports</h2>
+    <div class="row">
+      <input id="salesDate" type="date">
+      <button onclick="loadSales()">Load</button>
+      <button onclick="todaySales()">Today</button>
+    </div>
+    <h3>Day total: <span id="salesTotal">0</span> (<span id="salesCount">0</span> transactions)</h3>
+    <table id="salesTable"><thead><tr><th>ID</th><th>Time</th><th>Items</th><th>Total</th><th>Payment</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section id="tab-settings" class="tabpage hidden">
+  <div class="card">
+    <h2>Settings & multi-device sync</h2>
+    <label>Shop name <input id="sShop"></label>
+    <label>Currency symbol <input id="sCur"></label>
+    <label>Low-stock warning at <input id="sLow" type="number"></label>
+    <div class="row"><button onclick="saveSettings()">Save</button></div>
+    <hr>
+    <p>To use the <b>same products on another device</b>: press Export here, copy the file to the other device, then Import it there. Barcodes are stored in the database so any scanner will find them.</p>
+    <div class="row">
+      <button onclick="exportDB()">⬇ Export products + sales (JSON)</button>
+      <input type="file" id="importFile" accept=".json">
+      <button onclick="importDB()">⬆ Import</button>
+    </div>
+  </div>
+</section>
+
+<!-- product modal -->
+<div id="pModal" class="modal hidden">
+  <div class="modal-box">
+    <h2 id="pmTitle">New product</h2>
+    <input type="hidden" id="pmId">
+    <label>Barcode (scan or type) <input id="pmBarcode"></label>
+    <label>Name * <input id="pmName"></label>
+    <label>Price <input id="pmPrice" type="number" step="0.01" value="0"></label>
+    <label>Cost <input id="pmCost" type="number" step="0.01" value="0"></label>
+    <label>Stock <input id="pmStock" type="number" value="0"></label>
+    <label>Category <input id="pmCategory"></label>
+    <div class="row"><button class="primary" onclick="saveProduct()">Save</button><button onclick="closeProductModal()">Cancel</button></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

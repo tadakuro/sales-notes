@@ -1,0 +1,3 @@
+# runtime: stdlib only, no install needed
+# build only (used by GitHub Actions on Windows):
+pyinstaller>=6.0
