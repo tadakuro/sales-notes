@@ -5,113 +5,276 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cashier POS</title>
 <link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
 </head>
 <body>
-<header>
-  <h1>🧾 <span id="shopTitle">Cashier POS</span></h1>
-  <nav>
-    <button class="tab active" data-tab="pos">POS</button>
-    <button class="tab" data-tab="products">Products</button>
-    <button class="tab" data-tab="sales">Sales</button>
-    <button class="tab" data-tab="settings">Settings</button>
-  </nav>
-  <div id="statsBar">Today: <b id="stTotal">–</b> · <span id="stCount">–</span> sales · Low stock: <b id="stLow">–</b></div>
+
+<header class="app-header">
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-logo">🧾</div>
+      <div class="brand-text">
+        <h1 id="shopTitle">Cashier POS</h1>
+        <p><span id="clock">--:--</span> · <span id="todayLabel"></span></p>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="pos" role="tab">🛒 <span>POS</span></button>
+      <button class="tab" data-tab="products" role="tab">📦 <span>Products</span></button>
+      <button class="tab" data-tab="sales" role="tab">📊 <span>Sales</span></button>
+      <button class="tab" data-tab="settings" role="tab">⚙️ <span>Settings</span></button>
+    </nav>
+
+    <div class="header-stats">
+      <div class="hstat"><small>Today</small><b id="stTotal">–</b></div>
+      <div class="hstat"><small>Txns</small><b id="stCount">–</b></div>
+      <div class="hstat warn"><small>Low stock</small><b id="stLow">–</b></div>
+      <div class="hstat"><small>Items</small><b id="stProducts">–</b></div>
+      <div class="hstat user-chip" title="Logged-in cashier"><small>Cashier</small><b id="userName">CSR</b></div>
+      <button id="btnLogout" class="tab" title="Logout">⏻</button>
+    </div>
+  </div>
 </header>
 
-<!-- POS -->
-<section id="tab-pos" class="tabpage">
-  <div class="pos-grid">
+<main class="main">
+
+  <!-- ================= POS ================= -->
+  <section id="tab-pos" class="tabpage">
+    <div class="pos-layout">
+
+      <!-- LEFT: sell -->
+      <div class="products-panel">
+        <div class="card toolbar-card">
+          <div class="toolbar-row">
+            <div class="field barcode-field">
+              <label for="barcode">🔫 Barcode scanner</label>
+              <div class="input-group">
+                <input id="barcode" placeholder="Click here, then scan or type + Enter" autocomplete="off" autofocus>
+                <button id="btnAddBarcode" class="btn primary">Add</button>
+              </div>
+            </div>
+            <div class="field search-field">
+              <label for="search">🔍 Search products</label>
+              <div class="input-group">
+                <input id="search" placeholder="Name, barcode, category..." autocomplete="off">
+                <button id="btnClearSearch" class="btn ghost" title="Clear">✕</button>
+              </div>
+            </div>
+          </div>
+          <div class="toolbar-row second">
+            <select id="catFilter" title="Filter by category">
+              <option value="">All categories</option>
+            </select>
+            <label class="check"><input type="checkbox" id="hideOOS"> Hide out-of-stock</label>
+            <button id="btnRefreshGrid" class="btn small">↻ Refresh</button>
+            <span id="gridCount" class="muted"></span>
+          </div>
+          <p class="hint">USB / Bluetooth scanner acts as keyboard — click the barcode box and scan. Unknown barcode? We'll prompt you to create it.</p>
+        </div>
+
+        <div id="productGrid" class="product-grid"></div>
+        <div id="gridEmpty" class="empty hidden">No products found. Try another search or <button class="link" id="btnNewFromGrid">+ add new product</button>.</div>
+      </div>
+
+      <!-- RIGHT: cart -->
+      <aside class="cart-panel">
+        <div class="card cart-card">
+          <div class="cart-head">
+            <div>
+              <h2>Current sale</h2>
+              <small id="cartMeta" class="muted">0 items</small>
+            </div>
+            <button id="btnClearCart" class="btn ghost small">Clear</button>
+          </div>
+
+          <div class="cashier-box">👤 Cashier: <b id="cashierName">CSR</b></div>
+
+          <div id="cartItems" class="cart-items"></div>
+
+          <div class="totals">
+            <div class="trow"><span>Subtotal</span><b id="cartSubtotal">Rp 0</b></div>
+            <div class="trow grand"><span>Total</span><b id="cartTotal">Rp 0</b></div>
+          </div>
+
+          <label class="pay-label" for="payment">Tendered (IDR)</label>
+          <input id="payment" type="number" min="0" step="1" placeholder="0" inputmode="numeric">
+          <div class="quick-cash">
+            <button class="btn small" data-pay="exact">Exact</button>
+            <button class="btn small" data-pay="50">50</button>
+            <button class="btn small" data-pay="100">100</button>
+            <button class="btn small" data-pay="200">200</button>
+            <button class="btn small" data-pay="500">500</button>
+            <button class="btn small" data-pay="1000">1.000</button>
+            <button class="btn small" data-pay="2000">2.000</button>
+            <button class="btn small" data-pay="5000">5.000</button>
+            <button class="btn small" data-pay="10000">10.000</button>
+            <button class="btn small" data-pay="20000">20.000</button>
+            <button class="btn small" data-pay="50000">50.000</button>
+            <button class="btn small" data-pay="100000">100.000</button>
+          </div>
+
+          <div class="change-box">
+            <span>Change</span>
+            <b id="changeAmt">Rp 0</b>
+          </div>
+
+          <button id="btnCheckout" class="btn primary big">⚡ Charge · Print receipt</button>
+          <small class="muted center">Enter = scan · Ctrl+Enter = charge</small>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= PRODUCTS ================= -->
+  <section id="tab-products" class="tabpage hidden">
+    <div class="page-head">
+      <div>
+        <h2>Products</h2>
+        <p class="muted">Barcode database · stock tracking · low-stock alerts</p>
+      </div>
+      <button id="btnNewProduct" class="btn primary">+ New product</button>
+    </div>
+
     <div class="card">
-      <h2>Sell</h2>
-      <div class="row">
-        <input id="barcode" placeholder="Scan barcode or type + Enter 🔫" autocomplete="off">
-        <button onclick="lookupBarcode()">Add</button>
+      <div class="toolbar-row">
+        <div class="input-group grow">
+          <input id="pSearch" placeholder="Search barcode / name / category...">
+        </div>
+        <label class="check"><input type="checkbox" id="onlyLow"> Low stock only</label>
       </div>
-      <div class="row">
-        <input id="search" placeholder="Search name..." oninput="renderSearchSuggest()">
+      <div class="table-wrap">
+        <table id="prodTable">
+          <thead><tr><th>Product</th><th>Barcode</th><th>Category</th><th>Price</th><th>Cost</th><th>Stock</th><th style="text-align:right">Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
-      <div id="suggest"></div>
-      <p class="hint">USB barcode scanner works automatically — just click the barcode box and scan. If barcode is new, you'll be asked to type the product manually.</p>
     </div>
+  </section>
+
+  <!-- ================= SALES ================= -->
+  <section id="tab-sales" class="tabpage hidden">
+    <div class="page-head">
+      <div>
+        <h2>Sales reports</h2>
+        <p class="muted">Daily totals · receipts · reprints</p>
+      </div>
+      <div class="toolbar-row">
+        <input id="salesDate" type="date">
+        <button id="btnLoadSales" class="btn">Load</button>
+        <button id="btnTodaySales" class="btn ghost">Today</button>
+      </div>
+    </div>
+
+    <div class="stat-cards">
+      <div class="card stat"><small>Day total</small><b id="salesTotal">–</b><span id="salesCountWrap"><span id="salesCount">0</span> transactions</span></div>
+      <div class="card stat"><small>Average ticket</small><b id="salesAvg">–</b><span>per transaction</span></div>
+      <div class="card stat"><small>Date</small><b id="salesDateLabel">–</b><span>report period</span></div>
+    </div>
+
     <div class="card">
-      <h2>Cart</h2>
-      <table id="cartTable"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Sub</th><th></th></tr></thead><tbody></tbody></table>
-      <h3>Total: <span id="cartTotal">0.00</span></h3>
-      <div class="row">
-        <input id="payment" type="number" min="0" step="0.01" placeholder="Payment amount">
-        <button onclick="quickCash()">Exact</button>
-      </div>
-      <div class="row"><input id="cashier" placeholder="Cashier name (optional)"></div>
-      <div>Change: <b id="changeAmt">0.00</b></div>
-      <div class="row">
-        <button class="primary" onclick="checkout()">Charge / Print Receipt</button>
-        <button onclick="clearCart()">Clear</button>
+      <div class="table-wrap">
+        <table id="salesTable">
+          <thead><tr><th>ID</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th style="text-align:right">Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
-  </div>
-  <div id="receipt" class="card hidden">
-    <h2>Receipt <span id="rId"></span></h2>
-    <pre id="rBody"></pre>
-    <div class="row"><button onclick="window.print()">🖨️ Print</button><button onclick="document.getElementById('receipt').classList.add('hidden')">Close</button></div>
-  </div>
-</section>
+  </section>
 
-<!-- PRODUCTS -->
-<section id="tab-products" class="tabpage hidden">
-  <div class="card">
-    <h2>Products / Barcode database</h2>
-    <div class="row">
-      <input id="pSearch" placeholder="Search barcode / name..." oninput="loadProducts()">
-      <button onclick="openProductModal()">+ New product</button>
+  <!-- ================= SETTINGS ================= -->
+  <section id="tab-settings" class="tabpage hidden">
+    <div class="settings-grid">
+      <div class="card">
+        <h2>🏪 Shop profile</h2>
+        <label>Shop name<input id="sShop" placeholder="My Store"></label>
+        <label>Currency symbol<input id="sCur" placeholder="₱"></label>
+        <label>Low-stock warning at<input id="sLow" type="number" min="0" step="1"></label>
+        <button id="btnSaveSettings" class="btn primary">Save settings</button>
+      </div>
+      <div class="card">
+        <h2>🔄 Multi-device sync</h2>
+        <p class="muted">Use the <b>same products on another device</b>: Export here → copy the file → Import on the other device. Barcodes are stored in the DB so any scanner will find them.</p>
+        <div class="stack">
+          <button id="btnExport" class="btn">⬇ Export products + sales (JSON)</button>
+          <div class="input-group">
+            <input type="file" id="importFile" accept=".json,application/json">
+            <button id="btnImport" class="btn">⬆ Import</button>
+          </div>
+        </div>
+        <hr>
+        <h2>⌨️ Shortcuts</h2>
+        <ul class="shortcuts">
+          <li><kbd>Enter</kbd> in barcode box → add item</li>
+          <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> → charge</li>
+          <li><kbd>/</kbd> → focus search</li>
+        </ul>
+      </div>
     </div>
-    <table id="prodTable"><thead><tr><th>Barcode</th><th>Name</th><th>Price</th><th>Stock</th><th>Category</th><th></th></tr></thead><tbody></tbody></table>
-  </div>
-</section>
-
-<!-- SALES -->
-<section id="tab-sales" class="tabpage hidden">
-  <div class="card">
-    <h2>Sales reports</h2>
-    <div class="row">
-      <input id="salesDate" type="date">
-      <button onclick="loadSales()">Load</button>
-      <button onclick="todaySales()">Today</button>
-    </div>
-    <h3>Day total: <span id="salesTotal">0</span> (<span id="salesCount">0</span> transactions)</h3>
-    <table id="salesTable"><thead><tr><th>ID</th><th>Time</th><th>Items</th><th>Total</th><th>Payment</th><th></th></tr></thead><tbody></tbody></table>
-  </div>
-</section>
-
-<!-- SETTINGS -->
-<section id="tab-settings" class="tabpage hidden">
-  <div class="card">
-    <h2>Settings & multi-device sync</h2>
-    <label>Shop name <input id="sShop"></label>
-    <label>Currency symbol <input id="sCur"></label>
-    <label>Low-stock warning at <input id="sLow" type="number"></label>
-    <div class="row"><button onclick="saveSettings()">Save</button></div>
-    <hr>
-    <p>To use the <b>same products on another device</b>: press Export here, copy the file to the other device, then Import it there. Barcodes are stored in the database so any scanner will find them.</p>
-    <div class="row">
-      <button onclick="exportDB()">⬇ Export products + sales (JSON)</button>
-      <input type="file" id="importFile" accept=".json">
-      <button onclick="importDB()">⬆ Import</button>
-    </div>
-  </div>
-</section>
+  </section>
+</main>
 
 <!-- product modal -->
-<div id="pModal" class="modal hidden">
+<div id="pModal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal-box">
-    <h2 id="pmTitle">New product</h2>
+    <div class="modal-head"><h2 id="pmTitle">New product</h2><button class="btn ghost small" id="btnCloseModal">✕</button></div>
     <input type="hidden" id="pmId">
-    <label>Barcode (scan or type) <input id="pmBarcode"></label>
-    <label>Name * <input id="pmName"></label>
-    <label>Price <input id="pmPrice" type="number" step="0.01" value="0"></label>
-    <label>Cost <input id="pmCost" type="number" step="0.01" value="0"></label>
-    <label>Stock <input id="pmStock" type="number" value="0"></label>
-    <label>Category <input id="pmCategory"></label>
-    <div class="row"><button class="primary" onclick="saveProduct()">Save</button><button onclick="closeProductModal()">Cancel</button></div>
+    <div class="form-grid">
+      <label class="span2">Barcode (scan or type)<input id="pmBarcode" placeholder="e.g. 4800..."></label>
+      <label class="span2">Name *<input id="pmName" placeholder="e.g. Bottled Water 500ml"></label>
+      <label>Price (IDR)<input id="pmPrice" type="number" step="1" min="0" value="0"></label>
+      <label>Cost (IDR)<input id="pmCost" type="number" step="1" min="0" value="0"></label>
+      <label>Stock<input id="pmStock" type="number" step="1" value="0"></label>
+      <label>Category<input id="pmCategory" placeholder="Drinks / Food..."></label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnCancelModal">Cancel</button>
+      <button class="btn primary" id="btnSaveProduct">Save product</button>
+    </div>
+  </div>
+</div>
+
+<!-- receipt modal -->
+<div id="receiptModal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-box receipt-box">
+    <div class="modal-head"><h2>Receipt <span id="rId"></span></h2><button class="btn ghost small" id="btnCloseReceipt">✕</button></div>
+    <pre id="rBody"></pre>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnCloseReceipt2">Close</button>
+      <button class="btn primary" id="btnPrint">🖨️ Print</button>
+      <button class="btn" id="btnNewSale">New sale</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+
+<!-- login / register gate -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">🧾</div>
+    <h2 id="authShopName">Cashier POS</h2>
+    <p class="muted">Login to start selling — receipts use your login name.</p>
+    <div class="auth-tabs">
+      <button id="authTabLogin" class="tab active">Login</button>
+      <button id="authTabRegister" class="tab">Register</button>
+    </div>
+    <!-- login -->
+    <div id="authLoginPane" class="stack">
+      <label>Username<input id="loginUser" placeholder="e.g. CSR" autocomplete="username"></label>
+      <label>Password<input id="loginPass" type="password" placeholder="••••••" autocomplete="current-password"></label>
+      <button id="btnLogin" class="btn primary big">Login</button>
+      <small class="muted center">Default account: <b>CSR</b> / <b>csr123</b></small>
+    </div>
+    <!-- register -->
+    <div id="authRegPane" class="stack hidden">
+      <label>Username *<input id="regUser" placeholder="e.g. budi" autocomplete="username"></label>
+      <label>Display name (cashier name)<input id="regDisplay" placeholder="e.g. Budi"></label>
+      <label>Password *<input id="regPass" type="password" placeholder="min. 4 chars" autocomplete="new-password"></label>
+      <label>Confirm password *<input id="regConfirm" type="password" placeholder="repeat password" autocomplete="new-password"></label>
+      <button id="btnRegister" class="btn primary big">Register</button>
+    </div>
+    <div id="authErr" class="auth-err hidden"></div>
   </div>
 </div>
 

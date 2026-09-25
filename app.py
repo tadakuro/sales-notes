@@ -10,6 +10,8 @@ Simple Cashier / POS software
 Run:  python3 app.py
 Then open: http://localhost:8000
 """
+import hashlib
+import secrets
 import json
 import os
 import sys
@@ -72,7 +74,41 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    pw_salt TEXT NOT NULL,
+    pw_hash TEXT NOT NULL,
+    display_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT '',
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
 """
+
+DEFAULT_CSR_USER = "CSR"
+DEFAULT_CSR_PASS = "csr123"
+
+def hash_password(password, salt_hex=None):
+    if salt_hex is None:
+        salt_hex = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 100_000)
+    return salt_hex, dk.hex()
+
+def verify_password(password, salt_hex, hash_hex):
+    try:
+        _, h = hash_password(password, salt_hex)
+        return secrets.compare_digest(h, hash_hex)
+    except Exception:
+        return False
+
+def public_user(row):
+    return {"id": row["id"], "username": row["username"],
+            "display_name": row["display_name"] or row["username"]}
 
 def db():
     con = sqlite3.connect(DB_PATH)
@@ -83,9 +119,18 @@ def init_db():
     con = db()
     con.executescript(SCHEMA)
     con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('shop_name','My Store')")
-    con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('currency','₱')")
+    con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('currency','Rp')")
     con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('low_stock_at','5')")
     con.commit()
+    # seed default cashier account CSR (username CSR / password csr123)
+    row = con.execute("SELECT * FROM users WHERE username=?", (DEFAULT_CSR_USER,)).fetchone()
+    if not row:
+        salt, h = hash_password(DEFAULT_CSR_PASS)
+        con.execute(
+            "INSERT INTO users(username,pw_salt,pw_hash,display_name,created_at) VALUES(?,?,?,?,?)",
+            (DEFAULT_CSR_USER, salt, h, DEFAULT_CSR_USER,
+             datetime.now().isoformat(timespec="seconds")))
+        con.commit()
     # seed demo products on first run
     n = con.execute("SELECT COUNT(*) c FROM products").fetchone()["c"]
     if n == 0:
@@ -126,6 +171,28 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(ln).decode())
         except Exception:
             return {}
+
+    def auth_token(self):
+        auth = self.headers.get("Authorization", "") or ""
+        if auth.startswith("Bearer "):
+            return auth[7:].strip()
+        # fallback: Cookie pos_token=...
+        cookie = self.headers.get("Cookie", "") or ""
+        for part in cookie.split(";"):
+            part = part.strip()
+            if part.startswith("pos_token="):
+                return part[len("pos_token="):].strip()
+        return ""
+
+    def auth_user(self, con):
+        tok = self.auth_token()
+        if not tok:
+            return None
+        s = con.execute("SELECT * FROM sessions WHERE token=?", (tok,)).fetchone()
+        if not s:
+            return None
+        u = con.execute("SELECT * FROM users WHERE id=?", (s["user_id"],)).fetchone()
+        return u
 
     def serve_static(self, path):
         if path in ("/", "/index.html"):
@@ -199,6 +266,17 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/settings":
                 r = con.execute("SELECT key,value FROM settings").fetchall()
                 return self.send_json({x["key"]: x["value"] for x in r})
+            if p == "/api/me":
+                u = self.auth_user(con)
+                if not u:
+                    return self.send_json({"error": "not_logged_in"}, 401)
+                return self.send_json(public_user(u))
+            if p == "/api/users":
+                u = self.auth_user(con)
+                if not u:
+                    return self.send_json({"error": "not_logged_in"}, 401)
+                r = con.execute("SELECT id,username,display_name,created_at FROM users ORDER BY username").fetchall()
+                return self.send_json(rows_to_list(r))
             if p == "/api/export":
                 prods = rows_to_list(con.execute("SELECT * FROM products").fetchall())
                 sales = rows_to_list(con.execute("SELECT * FROM sales ORDER BY id").fetchall())
@@ -217,6 +295,51 @@ class Handler(BaseHTTPRequestHandler):
         body = self.read_json()
         con = db()
         try:
+            if p == "/api/register":
+                username = (body.get("username") or "").strip()
+                password = body.get("password") or ""
+                confirm = body.get("confirm", password)
+                display = (body.get("display_name") or username).strip()
+                if len(username) < 2 or len(username) > 32:
+                    return self.send_json({"error": "username must be 2-32 chars"}, 400)
+                if len(password) < 4:
+                    return self.send_json({"error": "password_min_4"}, 400)
+                if password != confirm:
+                    return self.send_json({"error": "password_confirm_mismatch"}, 400)
+                if con.execute("SELECT 1 FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone():
+                    return self.send_json({"error": "username_taken"}, 409)
+                salt, h = hash_password(password)
+                cur = con.execute(
+                    "INSERT INTO users(username,pw_salt,pw_hash,display_name,created_at) VALUES(?,?,?,?,?)",
+                    (username, salt, h, display or username,
+                     datetime.now().isoformat(timespec="seconds")))
+                con.commit()
+                u = con.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
+                tok = secrets.token_hex(32)
+                con.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)",
+                            (tok, u["id"], datetime.now().isoformat(timespec="seconds")))
+                con.commit()
+                resp = public_user(u); resp["token"] = tok
+                return self.send_json(resp)
+            if p == "/api/login":
+                username = (body.get("username") or "").strip()
+                password = body.get("password") or ""
+                u = con.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE",
+                                (username,)).fetchone()
+                if not u or not verify_password(password, u["pw_salt"], u["pw_hash"]):
+                    return self.send_json({"error": "invalid_login"}, 401)
+                tok = secrets.token_hex(32)
+                con.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)",
+                            (tok, u["id"], datetime.now().isoformat(timespec="seconds")))
+                con.commit()
+                resp = public_user(u); resp["token"] = tok
+                return self.send_json(resp)
+            if p == "/api/logout":
+                tok = self.auth_token() or (body.get("token") or "")
+                if tok:
+                    con.execute("DELETE FROM sessions WHERE token=?", (tok,))
+                    con.commit()
+                return self.send_json({"ok": True})
             if p == "/api/products":
                 barcode = (body.get("barcode") or "").strip()
                 name = (body.get("name") or "").strip()
@@ -244,7 +367,12 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/checkout":
                 items = body.get("items") or []
                 payment = float(body.get("payment", 0) or 0)
-                cashier = (body.get("cashier") or "").strip()
+                # cashier name comes from the login account; fallback to posted name, then CSR
+                au = self.auth_user(con)
+                if au is not None:
+                    cashier = (au["display_name"] or au["username"]).strip()
+                else:
+                    cashier = (body.get("cashier") or "").strip() or "CSR"
                 if not items: return self.send_json({"error": "empty_cart"}, 400)
                 total, lines = 0.0, []
                 for it in items:
