@@ -3,179 +3,160 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cashier POS</title>
+<title>My Sales Notes</title>
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>">
+<style>
+  .pay-seg{display:flex;gap:8px}
+  .pay-seg button{flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--line);background:#fff;font-weight:800;font-size:15px;cursor:pointer}
+  .pay-seg button.active-cash{background:#e3f5ea;border-color:var(--green);color:var(--green)}
+  .pay-seg button.active-qris{background:#e8f1fe;border-color:var(--brand);color:var(--brand)}
+  .day-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .day-nav input[type=date]{max-width:180px}
+  .total-hero{background:linear-gradient(160deg,#1a73e8,#0f5ac0);color:#fff;border-radius:14px;padding:16px;margin-bottom:12px}
+  .total-hero small{opacity:.85;text-transform:uppercase;letter-spacing:.05em;font-size:11.5px;font-weight:800}
+  .total-hero .big{font-size:30px;font-weight:800;margin:2px 0}
+  .total-hero .split{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
+  .total-hero .pill{background:#ffffff26;border:1px solid #ffffff40;border-radius:10px;padding:6px 12px;font-size:13.5px;font-weight:700}
+  .entry{display:grid;grid-template-columns:1fr auto;gap:4px 10px;background:#f7f9fc;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+  .entry .ename{font-weight:700}
+  .entry .emeta{font-size:12.5px;color:var(--muted)}
+  .entry .esub{font-weight:800;text-align:right;font-size:16px}
+  .entry .eactions{grid-column:1/-1;display:flex;gap:6px;align-items:center}
+  .paybadge{font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:999px}
+  .paybadge.cash{background:var(--green-bg);color:var(--green)}
+  .paybadge.qris{background:#e8f1fe;color:var(--brand)}
+  .add-card label{display:block;font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 6px}
+  .add-card input,.add-card select{margin:0}
+  .form-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:600px){.form-2col{grid-template-columns:1fr}}
+  .day-row{cursor:pointer}
+  .day-row:hover{background:#f6f8fb}
+</style>
 </head>
 <body>
 
 <header class="app-header">
   <div class="header-inner">
     <div class="brand">
-      <div class="brand-logo">🧾</div>
+      <div class="brand-logo">📝</div>
       <div class="brand-text">
-        <h1 id="shopTitle">Cashier POS</h1>
+        <h1 id="shopTitle">My Sales Notes</h1>
         <p><span id="clock">--:--</span> · <span id="todayLabel"></span></p>
       </div>
     </div>
 
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="pos" role="tab">🛒 <span>POS</span></button>
-      <button class="tab" data-tab="products" role="tab">📦 <span>Products</span></button>
-      <button class="tab" data-tab="sales" role="tab">📊 <span>Sales</span></button>
+      <button class="tab active" data-tab="note" role="tab">📝 <span>Day note</span></button>
+      <button class="tab" data-tab="history" role="tab">📅 <span>History</span></button>
       <button class="tab" data-tab="settings" role="tab">⚙️ <span>Settings</span></button>
     </nav>
 
     <div class="header-stats">
-      <div class="hstat"><small>Today</small><b id="stTotal">–</b></div>
-      <div class="hstat"><small>Txns</small><b id="stCount">–</b></div>
-      <div class="hstat warn"><small>Low stock</small><b id="stLow">–</b></div>
-      <div class="hstat"><small>Items</small><b id="stProducts">–</b></div>
-      <div class="hstat user-chip" title="Logged-in cashier"><small>Cashier</small><b id="userName">CSR</b></div>
-      <button id="btnLogout" class="tab" title="Logout">⏻</button>
+      <div class="hstat"><small>Today</small><b id="stToday">–</b></div>
+      <div class="hstat"><small>This month</small><b id="stMonth">–</b></div>
+      <button id="btnLogout" class="tab" title="Lock with key">🔒</button>
     </div>
   </div>
 </header>
 
 <main class="main">
 
-  <!-- ================= POS ================= -->
-  <section id="tab-pos" class="tabpage">
-    <div class="pos-layout">
+  <!-- ================= DAY NOTE ================= -->
+  <section id="tab-note" class="tabpage">
+    <div class="card">
+      <div class="day-nav">
+        <button id="btnPrevDay" class="btn small">‹ Prev</button>
+        <input id="viewDate" type="date">
+        <button id="btnNextDay" class="btn small">Next ›</button>
+        <button id="btnToday" class="btn small primary">Today</button>
+        <span id="dayHint" class="muted"></span>
+      </div>
+    </div>
 
-      <!-- LEFT: sell -->
-      <div class="products-panel">
-        <div class="card toolbar-card">
-          <div class="toolbar-row">
-            <div class="field barcode-field">
-              <label for="barcode">🔫 Barcode scanner</label>
-              <div class="input-group">
-                <input id="barcode" placeholder="Click here, then scan or type + Enter" autocomplete="off" autofocus>
-                <button id="btnAddBarcode" class="btn primary">Add</button>
-              </div>
-            </div>
-            <div class="field search-field">
-              <label for="search">🔍 Search products</label>
-              <div class="input-group">
-                <input id="search" placeholder="Name, barcode, category..." autocomplete="off">
-                <button id="btnClearSearch" class="btn ghost" title="Clear">✕</button>
-              </div>
-            </div>
-          </div>
-          <div class="toolbar-row second">
-            <select id="catFilter" title="Filter by category">
-              <option value="">All categories</option>
-            </select>
-            <label class="check"><input type="checkbox" id="hideOOS"> Hide out-of-stock</label>
-            <button id="btnRefreshGrid" class="btn small">↻ Refresh</button>
-            <span id="gridCount" class="muted"></span>
-          </div>
-          <p class="hint">USB / Bluetooth scanner acts as keyboard — click the barcode box and scan. Unknown barcode? We'll prompt you to create it.</p>
+    <div class="total-hero">
+      <small id="totalLabel">Total earnings · today</small>
+      <div class="big" id="dayTotal">Rp 0</div>
+      <div class="split">
+        <span class="pill">💵 Cash: <b id="cashTotal">Rp 0</b> (<span id="cashCount">0</span>)</span>
+        <span class="pill">📱 QRIS: <b id="qrisTotal">Rp 0</b> (<span id="qrisCount">0</span>)</span>
+        <span class="pill">🧾 <span id="dayCount">0</span> sales</span>
+      </div>
+    </div>
+
+    <div class="pos-layout" style="grid-template-columns:1fr 380px">
+      <div>
+        <div class="card">
+          <h2 id="entriesTitle">Today's sales</h2>
+          <p class="muted" style="margin:4px 0 10px">Newest at the bottom · auto-saved per day</p>
+          <div id="entries"></div>
+          <div id="entriesEmpty" class="empty hidden">No sales yet for this day.<br><small>Add your first sale on the right →</small></div>
         </div>
-
-        <div id="productGrid" class="product-grid"></div>
-        <div id="gridEmpty" class="empty hidden">No products found. Try another search or <button class="link" id="btnNewFromGrid">+ add new product</button>.</div>
       </div>
 
-      <!-- RIGHT: cart -->
       <aside class="cart-panel">
-        <div class="card cart-card">
-          <div class="cart-head">
+        <div class="card add-card">
+          <h2 id="formTitle">+ Add sale</h2>
+          <input type="hidden" id="editId">
+          <label for="fItem">Item name *</label>
+          <input id="fItem" placeholder="e.g. Nasi goreng" autocomplete="off">
+          <div class="form-2col">
             <div>
-              <h2>Current sale</h2>
-              <small id="cartMeta" class="muted">0 items</small>
+              <label for="fQty">Quantity *</label>
+              <input id="fQty" type="number" min="0.01" step="any" value="1" inputmode="decimal">
             </div>
-            <button id="btnClearCart" class="btn ghost small">Clear</button>
+            <div>
+              <label for="fPrice">Price (each) *</label>
+              <input id="fPrice" type="number" min="0" step="any" value="" placeholder="0" inputmode="decimal">
+            </div>
           </div>
-
-          <div class="cashier-box">👤 Cashier: <b id="cashierName">CSR</b></div>
-
-          <div id="cartItems" class="cart-items"></div>
-
-          <div class="totals">
-            <div class="trow"><span>Subtotal</span><b id="cartSubtotal">Rp 0</b></div>
-            <div class="trow grand"><span>Total</span><b id="cartTotal">Rp 0</b></div>
+          <label>Payment *</label>
+          <div class="pay-seg">
+            <button id="payCash" class="active-cash">💵 Cash</button>
+            <button id="payQris">📱 QRIS</button>
           </div>
-
-          <label class="pay-label" for="payment">Tendered (IDR)</label>
-          <input id="payment" type="number" min="0" step="1" placeholder="0" inputmode="numeric">
-          <div class="quick-cash">
-            <button class="btn small" data-pay="exact">Exact</button>
-            <button class="btn small" data-pay="50">50</button>
-            <button class="btn small" data-pay="100">100</button>
-            <button class="btn small" data-pay="200">200</button>
-            <button class="btn small" data-pay="500">500</button>
-            <button class="btn small" data-pay="1000">1.000</button>
-            <button class="btn small" data-pay="2000">2.000</button>
-            <button class="btn small" data-pay="5000">5.000</button>
-            <button class="btn small" data-pay="10000">10.000</button>
-            <button class="btn small" data-pay="20000">20.000</button>
-            <button class="btn small" data-pay="50000">50.000</button>
-            <button class="btn small" data-pay="100000">100.000</button>
+          <div class="form-2col">
+            <div>
+              <label for="fDate">Date *</label>
+              <input id="fDate" type="date">
+            </div>
+            <div>
+              <label for="fSub">Subtotal</label>
+              <input id="fSub" disabled value="0">
+            </div>
           </div>
-
-          <div class="change-box">
-            <span>Change</span>
-            <b id="changeAmt">Rp 0</b>
-          </div>
-
-          <button id="btnCheckout" class="btn primary big">⚡ Charge · Print receipt</button>
-          <small class="muted center">Enter = scan · Ctrl+Enter = charge</small>
+          <label for="fNote">Note (optional)</label>
+          <input id="fNote" placeholder="e.g. regular customer" autocomplete="off">
+          <button id="btnSave" class="btn primary big">💾 Save sale</button>
+          <button id="btnCancelEdit" class="btn ghost big hidden">Cancel edit</button>
+          <small class="muted center" style="display:block;margin-top:6px">Enter = save · each day starts a fresh note automatically</small>
         </div>
       </aside>
     </div>
   </section>
 
-  <!-- ================= PRODUCTS ================= -->
-  <section id="tab-products" class="tabpage hidden">
+  <!-- ================= HISTORY ================= -->
+  <section id="tab-history" class="tabpage hidden">
     <div class="page-head">
       <div>
-        <h2>Products</h2>
-        <p class="muted">Barcode database · stock tracking · low-stock alerts</p>
-      </div>
-      <button id="btnNewProduct" class="btn primary">+ New product</button>
-    </div>
-
-    <div class="card">
-      <div class="toolbar-row">
-        <div class="input-group grow">
-          <input id="pSearch" placeholder="Search barcode / name / category...">
-        </div>
-        <label class="check"><input type="checkbox" id="onlyLow"> Low stock only</label>
-      </div>
-      <div class="table-wrap">
-        <table id="prodTable">
-          <thead><tr><th>Product</th><th>Barcode</th><th>Category</th><th>Price</th><th>Cost</th><th>Stock</th><th style="text-align:right">Actions</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= SALES ================= -->
-  <section id="tab-sales" class="tabpage hidden">
-    <div class="page-head">
-      <div>
-        <h2>Sales reports</h2>
-        <p class="muted">Daily totals · receipts · reprints</p>
+        <h2>History</h2>
+        <p class="muted">Daily totals · tap a day to open its note</p>
       </div>
       <div class="toolbar-row">
-        <input id="salesDate" type="date">
-        <button id="btnLoadSales" class="btn">Load</button>
-        <button id="btnTodaySales" class="btn ghost">Today</button>
+        <input id="histMonth" type="month">
+        <button id="btnLoadHist" class="btn">Load</button>
+        <button id="btnThisMonth" class="btn ghost">This month</button>
       </div>
     </div>
-
     <div class="stat-cards">
-      <div class="card stat"><small>Day total</small><b id="salesTotal">–</b><span id="salesCountWrap"><span id="salesCount">0</span> transactions</span></div>
-      <div class="card stat"><small>Average ticket</small><b id="salesAvg">–</b><span>per transaction</span></div>
-      <div class="card stat"><small>Date</small><b id="salesDateLabel">–</b><span>report period</span></div>
+      <div class="card stat"><small>Month total</small><b id="histTotal">–</b><span id="histCount">0 sales days</span></div>
+      <div class="card stat"><small>Average / day</small><b id="histAvg">–</b><span>per selling day</span></div>
+      <div class="card stat"><small>Month</small><b id="histLabel">–</b><span>report period</span></div>
     </div>
-
     <div class="card">
       <div class="table-wrap">
-        <table id="salesTable">
-          <thead><tr><th>ID</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th style="text-align:right">Actions</th></tr></thead>
+        <table id="histTable">
+          <thead><tr><th>Date</th><th>Sales</th><th>Cash</th><th>QRIS</th><th>Total</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -186,93 +167,49 @@
   <section id="tab-settings" class="tabpage hidden">
     <div class="settings-grid">
       <div class="card">
-        <h2>🏪 Shop profile</h2>
-        <label>Shop name<input id="sShop" placeholder="My Store"></label>
-        <label>Currency symbol<input id="sCur" placeholder="₱"></label>
-        <label>Low-stock warning at<input id="sLow" type="number" min="0" step="1"></label>
-        <button id="btnSaveSettings" class="btn primary">Save settings</button>
+        <h2>🏪 Notebook profile</h2>
+        <label>Notebook name<input id="sShop" placeholder="My Sales Notes"></label>
+        <label>Currency symbol<input id="sCur" placeholder="Rp"></label>
+        <button id="btnSaveSettings" class="btn primary">Save</button>
       </div>
       <div class="card">
-        <h2>🔄 Multi-device sync</h2>
-        <p class="muted">Use the <b>same products on another device</b>: Export here → copy the file → Import on the other device. Barcodes are stored in the DB so any scanner will find them.</p>
+        <h2>🔑 Access key</h2>
+        <p class="muted">One key unlocks your notes from any device. Keep it private.</p>
         <div class="stack">
-          <button id="btnExport" class="btn">⬇ Export products + sales (JSON)</button>
+          <label>Old key<input id="kOld" type="password" placeholder="current key"></label>
+          <label>New key (min 4 chars)<input id="kNew" type="password" placeholder="new key"></label>
+          <button id="btnChangeKey" class="btn">Change key</button>
+        </div>
+        <hr>
+        <h2>🔄 Backup</h2>
+        <div class="stack">
+          <button id="btnExport" class="btn">⬇ Export all (JSON)</button>
           <div class="input-group">
             <input type="file" id="importFile" accept=".json,application/json">
             <button id="btnImport" class="btn">⬆ Import</button>
           </div>
         </div>
-        <hr>
-        <h2>⌨️ Shortcuts</h2>
-        <ul class="shortcuts">
-          <li><kbd>Enter</kbd> in barcode box → add item</li>
-          <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> → charge</li>
-          <li><kbd>/</kbd> → focus search</li>
-        </ul>
       </div>
     </div>
   </section>
 </main>
 
-<!-- product modal -->
-<div id="pModal" class="modal hidden" role="dialog" aria-modal="true">
-  <div class="modal-box">
-    <div class="modal-head"><h2 id="pmTitle">New product</h2><button class="btn ghost small" id="btnCloseModal">✕</button></div>
-    <input type="hidden" id="pmId">
-    <div class="form-grid">
-      <label class="span2">Barcode (scan or type)<input id="pmBarcode" placeholder="e.g. 4800..."></label>
-      <label class="span2">Name *<input id="pmName" placeholder="e.g. Bottled Water 500ml"></label>
-      <label>Price (IDR)<input id="pmPrice" type="number" step="1" min="0" value="0"></label>
-      <label>Cost (IDR)<input id="pmCost" type="number" step="1" min="0" value="0"></label>
-      <label>Stock<input id="pmStock" type="number" step="1" value="0"></label>
-      <label>Category<input id="pmCategory" placeholder="Drinks / Food..."></label>
-    </div>
-    <div class="modal-actions">
-      <button class="btn ghost" id="btnCancelModal">Cancel</button>
-      <button class="btn primary" id="btnSaveProduct">Save product</button>
-    </div>
-  </div>
-</div>
-
-<!-- receipt modal -->
-<div id="receiptModal" class="modal hidden" role="dialog" aria-modal="true">
-  <div class="modal-box receipt-box">
-    <div class="modal-head"><h2>Receipt <span id="rId"></span></h2><button class="btn ghost small" id="btnCloseReceipt">✕</button></div>
-    <pre id="rBody"></pre>
-    <div class="modal-actions">
-      <button class="btn ghost" id="btnCloseReceipt2">Close</button>
-      <button class="btn primary" id="btnPrint">🖨️ Print</button>
-      <button class="btn" id="btnNewSale">New sale</button>
-    </div>
-  </div>
-</div>
-
 <div id="toasts" aria-live="polite"></div>
 
-<!-- login / register gate -->
+<!-- key gate -->
 <div id="authScreen" class="auth-screen">
   <div class="auth-card">
-    <div class="auth-logo">🧾</div>
-    <h2 id="authShopName">Cashier POS</h2>
-    <p class="muted">Login to start selling — receipts use your login name.</p>
-    <div class="auth-tabs">
-      <button id="authTabLogin" class="tab active">Login</button>
-      <button id="authTabRegister" class="tab">Register</button>
+    <div class="auth-logo">📝</div>
+    <h2 id="authShopName">My Sales Notes</h2>
+    <p class="muted" id="authHint">Enter your access key to open your notes.</p>
+    <div id="authSetupPane" class="stack hidden">
+      <label>Create access key (min 4 chars)<input id="setupKey" type="password" placeholder="choose a private key"></label>
+      <label>Repeat key<input id="setupKey2" type="password" placeholder="repeat key"></label>
+      <button id="btnSetup" class="btn primary big">Create + open</button>
     </div>
-    <!-- login -->
     <div id="authLoginPane" class="stack">
-      <label>Username<input id="loginUser" placeholder="e.g. CSR" autocomplete="username"></label>
-      <label>Password<input id="loginPass" type="password" placeholder="••••••" autocomplete="current-password"></label>
-      <button id="btnLogin" class="btn primary big">Login</button>
-      <small class="muted center">Default account: <b>CSR</b> / <b>csr123</b></small>
-    </div>
-    <!-- register -->
-    <div id="authRegPane" class="stack hidden">
-      <label>Username *<input id="regUser" placeholder="e.g. budi" autocomplete="username"></label>
-      <label>Display name (cashier name)<input id="regDisplay" placeholder="e.g. Budi"></label>
-      <label>Password *<input id="regPass" type="password" placeholder="min. 4 chars" autocomplete="new-password"></label>
-      <label>Confirm password *<input id="regConfirm" type="password" placeholder="repeat password" autocomplete="new-password"></label>
-      <button id="btnRegister" class="btn primary big">Register</button>
+      <label>Access key<input id="loginKey" type="password" placeholder="••••••" autocomplete="current-password"></label>
+      <button id="btnLogin" class="btn primary big">Unlock notes</button>
     </div>
     <div id="authErr" class="auth-err hidden"></div>
   </div>

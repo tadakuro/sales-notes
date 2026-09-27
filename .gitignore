@@ -1,4 +1,6 @@
 pos.db
+*.bak-*
+*.bak
 __pycache__/
 *.pyc
 dist/

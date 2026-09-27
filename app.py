@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """
-Simple Cashier / POS software
-- stdlib only (no pip install needed) -> runs on Android/Termux, Windows, Linux
-- SQLite database with barcode field
-- Barcode scanner support: scanners type barcode + Enter, app looks it up,
-  if not found it asks you to type product details manually.
-- GitHub Actions builds this into a .exe (see .github/workflows/build-exe.yml)
+My Sales Notes — personal daily sales notebook
+- stdlib only (runs on Android/Termux, Windows, Linux)
+- Login with a single access KEY (works from any device, no username)
+- Daily note: each date auto-gets a fresh blank note
+- Entry fields: item name, quantity, price, date, payment (cash/qris), optional note
+- Day totals + cash/qris breakdown auto-saved in DB
 
-Run:  python3 app.py
-Then open: http://localhost:8000
+Run:  python3 app.py [--no-browser]
+Then: http://localhost:8000
 """
 import hashlib
 import secrets
 import json
 import os
+import re
 import sys
 import sqlite3
 import webbrowser
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
-from datetime import datetime
+from datetime import datetime, date as date_cls
 
 def app_dir():
-    # When frozen with PyInstaller, exe dir; else script dir
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -31,129 +31,114 @@ def app_dir():
 BASE_DIR = app_dir()
 DB_PATH = os.path.join(BASE_DIR, "pos.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-# dev fallback: static next to this source file when running from elsewhere
 if not os.path.isdir(STATIC_DIR):
     _src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
     if os.path.isdir(_src):
         STATIC_DIR = _src
-PORT = int(os.environ.get("POS_PORT", "8000"))
+PORT = int(os.environ.get("POS_PORT", os.environ.get("PORT", "8000")))
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    barcode TEXT UNIQUE,
-    name TEXT NOT NULL,
-    price REAL NOT NULL DEFAULT 0,
-    cost REAL NOT NULL DEFAULT 0,
-    stock INTEGER NOT NULL DEFAULT 0,
-    category TEXT DEFAULT '',
-    created_at TEXT DEFAULT ''
-);
-CREATE TABLE IF NOT EXISTS sales (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    datetime TEXT NOT NULL,
-    date TEXT NOT NULL,
-    total REAL NOT NULL,
-    payment REAL NOT NULL,
-    change REAL NOT NULL,
-    cashier TEXT DEFAULT '',
-    item_count INTEGER DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS sale_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sale_id INTEGER NOT NULL,
-    product_id INTEGER,
-    barcode TEXT DEFAULT '',
-    name TEXT NOT NULL,
-    price REAL NOT NULL,
-    qty INTEGER NOT NULL,
-    subtotal REAL NOT NULL,
-    FOREIGN KEY (sale_id) REFERENCES sales(id)
-);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    pw_salt TEXT NOT NULL,
-    pw_hash TEXT NOT NULL,
-    display_name TEXT DEFAULT '',
-    created_at TEXT DEFAULT ''
-);
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    created_at TEXT DEFAULT '',
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    created_at TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    item TEXT NOT NULL,
+    qty REAL NOT NULL DEFAULT 1,
+    price REAL NOT NULL DEFAULT 0,
+    subtotal REAL NOT NULL DEFAULT 0,
+    payment TEXT NOT NULL DEFAULT 'cash',
+    note TEXT DEFAULT '',
+    created_at TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
 """
 
-DEFAULT_CSR_USER = "CSR"
-DEFAULT_CSR_PASS = "csr123"
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-def hash_password(password, salt_hex=None):
+def today_str():
+    return date_cls.today().isoformat()
+
+def valid_date(s):
+    if not s or not DATE_RE.match(s):
+        return False
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+def norm_payment(p):
+    p = (p or "cash").strip().lower()
+    if p in ("qris", "qr", "transfer", "tf"):
+        return "qris"
+    return "cash"
+
+def hash_key(key, salt_hex=None):
     if salt_hex is None:
         salt_hex = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 100_000)
+    dk = hashlib.pbkdf2_hmac("sha256", key.encode("utf-8"), bytes.fromhex(salt_hex), 100_000)
     return salt_hex, dk.hex()
 
-def verify_password(password, salt_hex, hash_hex):
+def verify_key(key, salt_hex, hash_hex):
     try:
-        _, h = hash_password(password, salt_hex)
+        _, h = hash_key(key, salt_hex)
         return secrets.compare_digest(h, hash_hex)
     except Exception:
         return False
-
-def public_user(row):
-    return {"id": row["id"], "username": row["username"],
-            "display_name": row["display_name"] or row["username"]}
 
 def db():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
 
+def get_setting(con, key, default=""):
+    r = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return r["value"] if r else default
+
 def init_db():
     con = db()
     con.executescript(SCHEMA)
-    con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('shop_name','My Store')")
+    con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('shop_name','My Sales Notes')")
     con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('currency','Rp')")
-    con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('low_stock_at','5')")
     con.commit()
-    # seed default cashier account CSR (username CSR / password csr123)
-    row = con.execute("SELECT * FROM users WHERE username=?", (DEFAULT_CSR_USER,)).fetchone()
-    if not row:
-        salt, h = hash_password(DEFAULT_CSR_PASS)
-        con.execute(
-            "INSERT INTO users(username,pw_salt,pw_hash,display_name,created_at) VALUES(?,?,?,?,?)",
-            (DEFAULT_CSR_USER, salt, h, DEFAULT_CSR_USER,
-             datetime.now().isoformat(timespec="seconds")))
-        con.commit()
-    # seed demo products on first run
-    n = con.execute("SELECT COUNT(*) c FROM products").fetchone()["c"]
-    if n == 0:
-        now = datetime.now().isoformat(timespec="seconds")
-        con.executemany(
-            "INSERT INTO products(barcode,name,price,cost,stock,category,created_at) VALUES(?,?,?,?,?,?,?)",
-            [
-                ("480001111111", "Bottled Water 500ml", 20.0, 12.0, 50, "Drinks", now),
-                ("480002222222", "Instant Noodles", 25.0, 15.0, 40, "Food", now),
-                ("480003333333", "Coffee Sachet", 12.0, 7.0, 100, "Food", now),
-            ],
-        )
-        con.commit()
     con.close()
 
 def rows_to_list(rows):
     return [dict(r) for r in rows]
 
+def day_summary(con, day):
+    r = con.execute(
+        "SELECT COALESCE(SUM(subtotal),0) t, COUNT(*) c FROM entries WHERE date=?", (day,)
+    ).fetchone()
+    cash = con.execute(
+        "SELECT COALESCE(SUM(subtotal),0) t, COUNT(*) c FROM entries WHERE date=? AND payment='cash'", (day,)
+    ).fetchone()
+    qris = con.execute(
+        "SELECT COALESCE(SUM(subtotal),0) t, COUNT(*) c FROM entries WHERE date=? AND payment='qris'", (day,)
+    ).fetchone()
+    return {
+        "date": day,
+        "total": round(r["t"] or 0, 2),
+        "count": r["c"],
+        "cash_total": round(cash["t"] or 0, 2),
+        "cash_count": cash["c"],
+        "qris_total": round(qris["t"] or 0, 2),
+        "qris_count": qris["c"],
+    }
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CashierPOS/1.0"
+    server_version = "SalesNotes/2.0"
 
     def log_message(self, *a):
-        pass  # quiet
+        pass
 
     def send_json(self, obj, code=200):
         body = json.dumps(obj).encode()
@@ -176,7 +161,6 @@ class Handler(BaseHTTPRequestHandler):
         auth = self.headers.get("Authorization", "") or ""
         if auth.startswith("Bearer "):
             return auth[7:].strip()
-        # fallback: Cookie pos_token=...
         cookie = self.headers.get("Cookie", "") or ""
         for part in cookie.split(";"):
             part = part.strip()
@@ -184,15 +168,17 @@ class Handler(BaseHTTPRequestHandler):
                 return part[len("pos_token="):].strip()
         return ""
 
-    def auth_user(self, con):
+    def authed(self, con):
         tok = self.auth_token()
         if not tok:
-            return None
-        s = con.execute("SELECT * FROM sessions WHERE token=?", (tok,)).fetchone()
-        if not s:
-            return None
-        u = con.execute("SELECT * FROM users WHERE id=?", (s["user_id"],)).fetchone()
-        return u
+            return False
+        return con.execute("SELECT 1 FROM sessions WHERE token=?", (tok,)).fetchone() is not None
+
+    def need_auth(self, con):
+        if not self.authed(con):
+            self.send_json({"error": "not_logged_in"}, 401)
+            return False
+        return True
 
     def serve_static(self, path):
         if path in ("/", "/index.html"):
@@ -214,6 +200,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    # ---------------- GET ----------------
     def do_GET(self):
         u = urlparse(self.path)
         p, q = u.path, parse_qs(u.query)
@@ -221,269 +208,333 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/" or p == "/index.html" or p.startswith("/static/") or p.endswith((".html", ".js", ".css")):
                 con.close()
-                # map /static/* -> /*
                 if p.startswith("/static/"):
                     return self.serve_static(p[7:])
                 return self.serve_static(p)
-            if p == "/api/products":
-                term = (q.get("q", [""])[0] or "").strip()
-                if term:
-                    like = f"%{term}%"
-                    r = con.execute(
-                        "SELECT * FROM products WHERE barcode LIKE ? OR name LIKE ? OR category LIKE ? ORDER BY name LIMIT 200",
-                        (like, like, like)).fetchall()
-                else:
-                    r = con.execute("SELECT * FROM products ORDER BY name LIMIT 500").fetchall()
-                return self.send_json(rows_to_list(r))
-            if p.startswith("/api/product/"):
-                code = unquote(p[len("/api/product/"):]).strip()
-                r = con.execute("SELECT * FROM products WHERE barcode=?", (code,)).fetchone()
-                if r: return self.send_json(dict(r))
-                return self.send_json({"error": "not_found", "barcode": code}, 404)
-            if p == "/api/sales":
-                day = (q.get("date", [""])[0] or "").strip()
-                if day:
-                    r = con.execute("SELECT * FROM sales WHERE date=? ORDER BY id DESC", (day,)).fetchall()
-                    tot = con.execute("SELECT COALESCE(SUM(total),0) t, COUNT(*) c FROM sales WHERE date=?", (day,)).fetchone()
-                else:
-                    r = con.execute("SELECT * FROM sales ORDER BY id DESC LIMIT 200").fetchall()
-                    tot = con.execute("SELECT COALESCE(SUM(total),0) t, COUNT(*) c FROM sales").fetchone()
-                return self.send_json({"sales": rows_to_list(r), "total": tot["t"], "count": tot["c"]})
-            if p.startswith("/api/sales/"):
-                sid = p[len("/api/sales/"):]
-                s = con.execute("SELECT * FROM sales WHERE id=?", (sid,)).fetchone()
-                if not s: return self.send_json({"error": "not_found"}, 404)
-                items = con.execute("SELECT * FROM sale_items WHERE sale_id=?", (sid,)).fetchall()
-                d = dict(s); d["items"] = rows_to_list(items)
-                return self.send_json(d)
-            if p == "/api/stats":
-                today = datetime.now().strftime("%Y-%m-%d")
-                t = con.execute("SELECT COALESCE(SUM(total),0) t, COUNT(*) c FROM sales WHERE date=?", (today,)).fetchone()
-                low_at = int((con.execute("SELECT value FROM settings WHERE key='low_stock_at'").fetchone() or {"value": "5"})["value"] or 5)
-                low = con.execute("SELECT COUNT(*) c FROM products WHERE stock<=?", (low_at,)).fetchone()["c"]
-                prods = con.execute("SELECT COUNT(*) c FROM products").fetchone()["c"]
-                return self.send_json({"today_total": t["t"], "today_count": t["c"], "low_stock": low, "products": prods, "date": today})
-            if p == "/api/settings":
-                r = con.execute("SELECT key,value FROM settings").fetchall()
-                return self.send_json({x["key"]: x["value"] for x in r})
+
+            if p == "/api/setup-needed":
+                needed = not get_setting(con, "access_hash", "")
+                return self.send_json({"needed": needed})
+
+            if p == "/api/public-settings":
+                return self.send_json({
+                    "shop_name": get_setting(con, "shop_name", "My Sales Notes"),
+                })
+
             if p == "/api/me":
-                u = self.auth_user(con)
-                if not u:
+                if not self.authed(con):
                     return self.send_json({"error": "not_logged_in"}, 401)
-                return self.send_json(public_user(u))
-            if p == "/api/users":
-                u = self.auth_user(con)
-                if not u:
-                    return self.send_json({"error": "not_logged_in"}, 401)
-                r = con.execute("SELECT id,username,display_name,created_at FROM users ORDER BY username").fetchall()
-                return self.send_json(rows_to_list(r))
+                return self.send_json({"ok": True})
+
+            if p == "/api/settings":
+                if not self.need_auth(con): return
+                return self.send_json({
+                    "shop_name": get_setting(con, "shop_name", "My Sales Notes"),
+                    "currency": get_setting(con, "currency", "Rp"),
+                })
+
+            if p == "/api/day":
+                if not self.need_auth(con): return
+                day = (q.get("date", [""])[0] or "").strip() or today_str()
+                if not valid_date(day):
+                    return self.send_json({"error": "bad_date, use YYYY-MM-DD"}, 400)
+                entries = rows_to_list(con.execute(
+                    "SELECT * FROM entries WHERE date=? ORDER BY id ASC", (day,)).fetchall())
+                out = day_summary(con, day)
+                out["entries"] = entries
+                return self.send_json(out)
+
+            if p == "/api/days":
+                if not self.need_auth(con): return
+                month = (q.get("month", [""])[0] or "").strip()  # YYYY-MM
+                limit = int((q.get("limit", ["60"])[0] or "60"))
+                limit = max(1, min(limit, 500))
+                if month and not re.match(r"^\d{4}-\d{2}$", month):
+                    return self.send_json({"error": "bad_month, use YYYY-MM"}, 400)
+                if month:
+                    rows = con.execute(
+                        """SELECT date, COALESCE(SUM(subtotal),0) total, COUNT(*) count,
+                                  COALESCE(SUM(CASE WHEN payment='cash' THEN subtotal ELSE 0 END),0) cash_total,
+                                  COALESCE(SUM(CASE WHEN payment='qris' THEN subtotal ELSE 0 END),0) qris_total
+                           FROM entries WHERE substr(date,1,7)=? GROUP BY date ORDER BY date DESC LIMIT ?""",
+                        (month, limit)).fetchall()
+                    mtot = con.execute(
+                        "SELECT COALESCE(SUM(subtotal),0) t, COUNT(*) c FROM entries WHERE substr(date,1,7)=?",
+                        (month,)).fetchone()
+                else:
+                    rows = con.execute(
+                        """SELECT date, COALESCE(SUM(subtotal),0) total, COUNT(*) count,
+                                  COALESCE(SUM(CASE WHEN payment='cash' THEN subtotal ELSE 0 END),0) cash_total,
+                                  COALESCE(SUM(CASE WHEN payment='qris' THEN subtotal ELSE 0 END),0) qris_total
+                           FROM entries GROUP BY date ORDER BY date DESC LIMIT ?""",
+                        (limit,)).fetchall()
+                    mtot = None
+                days = [dict(r) for r in rows]
+                for d in days:
+                    d["total"] = round(d["total"] or 0, 2)
+                    d["cash_total"] = round(d["cash_total"] or 0, 2)
+                    d["qris_total"] = round(d["qris_total"] or 0, 2)
+                resp = {"days": days}
+                if mtot:
+                    resp["month"] = month
+                    resp["month_total"] = round(mtot["t"] or 0, 2)
+                    resp["month_count"] = mtot["c"]
+                return self.send_json(resp)
+
+            if p == "/api/stats":
+                if not self.need_auth(con): return
+                t = today_str()
+                month = t[:7]
+                tr = con.execute("SELECT COALESCE(SUM(subtotal),0) s, COUNT(*) c FROM entries WHERE date=?", (t,)).fetchone()
+                mr = con.execute("SELECT COALESCE(SUM(subtotal),0) s, COUNT(*) c FROM entries WHERE substr(date,1,7)=?", (month,)).fetchone()
+                ar = con.execute("SELECT COALESCE(SUM(subtotal),0) s, COUNT(*) c FROM entries").fetchone()
+                dc = con.execute("SELECT COUNT(DISTINCT date) c FROM entries").fetchone()["c"]
+                return self.send_json({
+                    "today": t, "month": month,
+                    "today_total": round(tr["s"] or 0, 2), "today_count": tr["c"],
+                    "month_total": round(mr["s"] or 0, 2), "month_count": mr["c"],
+                    "all_total": round(ar["s"] or 0, 2), "all_count": ar["c"],
+                    "days_count": dc,
+                })
+
             if p == "/api/export":
-                prods = rows_to_list(con.execute("SELECT * FROM products").fetchall())
-                sales = rows_to_list(con.execute("SELECT * FROM sales ORDER BY id").fetchall())
-                items = rows_to_list(con.execute("SELECT * FROM sale_items ORDER BY id").fetchall())
-                sett = {x["key"]: x["value"] for x in con.execute("SELECT key,value FROM settings").fetchall()}
-                return self.send_json({"products": prods, "sales": sales, "sale_items": items, "settings": sett,
-                                        "exported_at": datetime.now().isoformat()})
+                if not self.need_auth(con): return
+                entries = rows_to_list(con.execute("SELECT * FROM entries ORDER BY date, id").fetchall())
+                sett = {x["key"]: x["value"] for x in con.execute(
+                    "SELECT key,value FROM settings WHERE key IN ('shop_name','currency')").fetchall()}
+                return self.send_json({"entries": entries, "settings": sett,
+                                       "exported_at": datetime.now().isoformat()})
+
             self.send_error(404)
         finally:
             try: con.close()
             except Exception: pass
 
+    # ---------------- POST ----------------
     def do_POST(self):
         u = urlparse(self.path)
         p = u.path
         body = self.read_json()
         con = db()
         try:
-            if p == "/api/register":
-                username = (body.get("username") or "").strip()
-                password = body.get("password") or ""
-                confirm = body.get("confirm", password)
-                display = (body.get("display_name") or username).strip()
-                if len(username) < 2 or len(username) > 32:
-                    return self.send_json({"error": "username must be 2-32 chars"}, 400)
-                if len(password) < 4:
-                    return self.send_json({"error": "password_min_4"}, 400)
-                if password != confirm:
-                    return self.send_json({"error": "password_confirm_mismatch"}, 400)
-                if con.execute("SELECT 1 FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone():
-                    return self.send_json({"error": "username_taken"}, 409)
-                salt, h = hash_password(password)
-                cur = con.execute(
-                    "INSERT INTO users(username,pw_salt,pw_hash,display_name,created_at) VALUES(?,?,?,?,?)",
-                    (username, salt, h, display or username,
-                     datetime.now().isoformat(timespec="seconds")))
+            if p == "/api/setup":
+                if get_setting(con, "access_hash", ""):
+                    return self.send_json({"error": "already_setup"}, 400)
+                key = (body.get("key") or "").strip()
+                if len(key) < 4:
+                    return self.send_json({"error": "key_min_4_chars"}, 400)
+                salt, h = hash_key(key)
+                con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('access_salt',?)", (salt,))
+                con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('access_hash',?)", (h,))
                 con.commit()
-                u = con.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
                 tok = secrets.token_hex(32)
-                con.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)",
-                            (tok, u["id"], datetime.now().isoformat(timespec="seconds")))
+                con.execute("INSERT INTO sessions(token,created_at) VALUES(?,?)",
+                            (tok, datetime.now().isoformat(timespec="seconds")))
                 con.commit()
-                resp = public_user(u); resp["token"] = tok
-                return self.send_json(resp)
+                return self.send_json({"ok": True, "token": tok})
+
             if p == "/api/login":
-                username = (body.get("username") or "").strip()
-                password = body.get("password") or ""
-                u = con.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE",
-                                (username,)).fetchone()
-                if not u or not verify_password(password, u["pw_salt"], u["pw_hash"]):
-                    return self.send_json({"error": "invalid_login"}, 401)
+                key = (body.get("key") or "").strip()
+                salt = get_setting(con, "access_salt", "")
+                h = get_setting(con, "access_hash", "")
+                if not h:
+                    return self.send_json({"error": "not_setup", "setup_needed": True}, 400)
+                if not key or not verify_key(key, salt, h):
+                    return self.send_json({"error": "wrong_key"}, 401)
                 tok = secrets.token_hex(32)
-                con.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)",
-                            (tok, u["id"], datetime.now().isoformat(timespec="seconds")))
+                con.execute("INSERT INTO sessions(token,created_at) VALUES(?,?)",
+                            (tok, datetime.now().isoformat(timespec="seconds")))
                 con.commit()
-                resp = public_user(u); resp["token"] = tok
-                return self.send_json(resp)
+                return self.send_json({"ok": True, "token": tok})
+
             if p == "/api/logout":
                 tok = self.auth_token() or (body.get("token") or "")
                 if tok:
                     con.execute("DELETE FROM sessions WHERE token=?", (tok,))
                     con.commit()
                 return self.send_json({"ok": True})
-            if p == "/api/products":
-                barcode = (body.get("barcode") or "").strip()
-                name = (body.get("name") or "").strip()
-                if not name: return self.send_json({"error": "name_required"}, 400)
-                if not barcode:  # allow no-barcode items: generate internal code
-                    barcode = f"NOBC-{int(datetime.now().timestamp())}"
+
+            if p == "/api/change-key":
+                if not self.need_auth(con): return
+                old = (body.get("old_key") or "").strip()
+                new = (body.get("new_key") or "").strip()
+                salt = get_setting(con, "access_salt", "")
+                h = get_setting(con, "access_hash", "")
+                if not verify_key(old, salt, h):
+                    return self.send_json({"error": "wrong_old_key"}, 401)
+                if len(new) < 4:
+                    return self.send_json({"error": "key_min_4_chars"}, 400)
+                s2, h2 = hash_key(new)
+                con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('access_salt',?)", (s2,))
+                con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('access_hash',?)", (h2,))
+                # log out all other sessions
+                me = self.auth_token()
+                con.execute("DELETE FROM sessions WHERE token!=?", (me,))
+                con.commit()
+                return self.send_json({"ok": True})
+
+            if p == "/api/settings":
+                if not self.need_auth(con): return
+                for k in ("shop_name", "currency"):
+                    if k in body and body[k] is not None:
+                        con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                                    (k, str(body[k]).strip() or ("My Sales Notes" if k == "shop_name" else "Rp")))
+                con.commit()
+                return self.send_json({"ok": True})
+
+            if p == "/api/entries":
+                if not self.need_auth(con): return
+                day = (body.get("date") or "").strip() or today_str()
+                item = (body.get("item") or "").strip()
                 try:
-                    cur = con.execute(
-                        "INSERT INTO products(barcode,name,price,cost,stock,category,created_at) VALUES(?,?,?,?,?,?,?)",
-                        (barcode, name, float(body.get("price", 0) or 0), float(body.get("cost", 0) or 0),
-                         int(body.get("stock", 0) or 0), (body.get("category") or "").strip(),
-                         datetime.now().isoformat(timespec="seconds")))
-                    con.commit()
-                    r = con.execute("SELECT * FROM products WHERE id=?", (cur.lastrowid,)).fetchone()
-                    return self.send_json(dict(r))
-                except sqlite3.IntegrityError:
-                    return self.send_json({"error": "barcode_exists"}, 409)
-            if p == "/api/stock":
-                pid = int(body.get("id", 0) or 0)
-                chg = int(body.get("qty_change", 0) or 0)
-                con.execute("UPDATE products SET stock=stock+? WHERE id=?", (chg, pid))
-                con.commit()
-                r = con.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
-                return self.send_json(dict(r) if r else {"error": "not_found"})
-            if p == "/api/checkout":
-                items = body.get("items") or []
-                payment = float(body.get("payment", 0) or 0)
-                # cashier name comes from the login account; fallback to posted name, then CSR
-                au = self.auth_user(con)
-                if au is not None:
-                    cashier = (au["display_name"] or au["username"]).strip()
-                else:
-                    cashier = (body.get("cashier") or "").strip() or "CSR"
-                if not items: return self.send_json({"error": "empty_cart"}, 400)
-                total, lines = 0.0, []
-                for it in items:
-                    qty = int(it.get("qty", 1) or 1)
-                    prod = None
-                    if it.get("barcode"):
-                        prod = con.execute("SELECT * FROM products WHERE barcode=?", (it["barcode"],)).fetchone()
-                    if prod is None and it.get("id"):
-                        prod = con.execute("SELECT * FROM products WHERE id=?", (it["id"],)).fetchone()
-                    if prod is None:
-                        return self.send_json({"error": f'product_not_found: {it.get("barcode") or it.get("id")}'}, 400)
-                    if prod["stock"] < qty:
-                        return self.send_json({"error": f'insufficient_stock: {prod["name"]} (have {prod["stock"]})'}, 400)
-                    sub = round(prod["price"] * qty, 2)
-                    total += sub
-                    lines.append((prod, qty, sub))
-                total = round(total, 2)
-                if payment < total:
-                    return self.send_json({"error": f"payment_short: need {total}"}, 400)
-                now = datetime.now()
+                    qty = float(body.get("qty", 1) or 1)
+                except (ValueError, TypeError):
+                    return self.send_json({"error": "bad_qty"}, 400)
+                try:
+                    price = float(body.get("price", 0) or 0)
+                except (ValueError, TypeError):
+                    return self.send_json({"error": "bad_price"}, 400)
+                payment = norm_payment(body.get("payment"))
+                note = (body.get("note") or "").strip()
+                if not valid_date(day):
+                    return self.send_json({"error": "bad_date"}, 400)
+                if not item:
+                    return self.send_json({"error": "item_required"}, 400)
+                if qty <= 0:
+                    return self.send_json({"error": "qty_must_be_positive"}, 400)
+                if price < 0:
+                    return self.send_json({"error": "price_cant_be_negative"}, 400)
+                sub = round(qty * price, 2)
+                now = datetime.now().isoformat(timespec="seconds")
                 cur = con.execute(
-                    "INSERT INTO sales(datetime,date,total,payment,change,cashier,item_count) VALUES(?,?,?,?,?,?,?)",
-                    (now.isoformat(timespec="seconds"), now.strftime("%Y-%m-%d"), total, payment,
-                     round(payment - total, 2), cashier, len(lines)))
-                sid = cur.lastrowid
-                for prod, qty, sub in lines:
-                    con.execute(
-                        "INSERT INTO sale_items(sale_id,product_id,barcode,name,price,qty,subtotal) VALUES(?,?,?,?,?,?,?)",
-                        (sid, prod["id"], prod["barcode"], prod["name"], prod["price"], qty, sub))
-                    con.execute("UPDATE products SET stock=stock-? WHERE id=?", (qty, prod["id"]))
+                    "INSERT INTO entries(date,item,qty,price,subtotal,payment,note,created_at,updated_at)"
+                    " VALUES(?,?,?,?,?,?,?,?,?)",
+                    (day, item, qty, price, sub, payment, note, now, now))
                 con.commit()
-                s = con.execute("SELECT * FROM sales WHERE id=?", (sid,)).fetchone()
-                d = dict(s); d["items"] = rows_to_list(con.execute("SELECT * FROM sale_items WHERE sale_id=?", (sid,)).fetchall())
-                return self.send_json(d)
+                r = con.execute("SELECT * FROM entries WHERE id=?", (cur.lastrowid,)).fetchone()
+                out = dict(r)
+                out["day"] = day_summary(con, day)
+                return self.send_json(out)
+
             if p == "/api/import":
-                # used for moving DB to another device: {products:[...], overwrite:bool}
-                prods = body.get("products") or []
+                if not self.need_auth(con): return
+                entries = body.get("entries") or []
                 overwrite = bool(body.get("overwrite", False))
+                if overwrite:
+                    con.execute("DELETE FROM entries")
                 n = 0
-                for pr in prods:
+                for e in entries:
                     try:
-                        if overwrite:
-                            con.execute(
-                                "INSERT OR REPLACE INTO products(barcode,name,price,cost,stock,category,created_at) VALUES(?,?,?,?,?,?,?)",
-                                (pr.get("barcode"), pr.get("name"), float(pr.get("price", 0) or 0),
-                                 float(pr.get("cost", 0) or 0), int(pr.get("stock", 0) or 0),
-                                 pr.get("category", ""), pr.get("created_at") or datetime.now().isoformat()))
-                        else:
-                            con.execute(
-                                "INSERT OR IGNORE INTO products(barcode,name,price,cost,stock,category,created_at) VALUES(?,?,?,?,?,?,?)",
-                                (pr.get("barcode"), pr.get("name"), float(pr.get("price", 0) or 0),
-                                 float(pr.get("cost", 0) or 0), int(pr.get("stock", 0) or 0),
-                                 pr.get("category", ""), pr.get("created_at") or datetime.now().isoformat()))
+                        day = (e.get("date") or "").strip()
+                        item = (e.get("item") or "").strip()
+                        if not valid_date(day) or not item:
+                            continue
+                        qty = float(e.get("qty", 1) or 1)
+                        price = float(e.get("price", 0) or 0)
+                        if qty <= 0 or price < 0:
+                            continue
+                        payment = norm_payment(e.get("payment"))
+                        note = (e.get("note") or "")[:500]
+                        sub = round(qty * price, 2)
+                        now = e.get("created_at") or datetime.now().isoformat(timespec="seconds")
+                        con.execute(
+                            "INSERT INTO entries(date,item,qty,price,subtotal,payment,note,created_at,updated_at)"
+                            " VALUES(?,?,?,?,?,?,?,?,?)",
+                            (day, item, qty, price, sub, payment, note, now, now))
                         n += 1
                     except Exception:
                         pass
+                if isinstance(body.get("settings"), dict):
+                    for k in ("shop_name", "currency"):
+                        if body["settings"].get(k):
+                            con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                                        (k, str(body["settings"][k])[:80]))
                 con.commit()
                 return self.send_json({"imported": n})
-            if p == "/api/settings":
-                for k, v in body.items():
-                    con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, str(v)))
-                con.commit()
-                return self.send_json({"ok": True})
+
             self.send_error(404)
         finally:
             try: con.close()
             except Exception: pass
 
+    # ---------------- PUT ----------------
     def do_PUT(self):
         u = urlparse(self.path)
         p = u.path
         body = self.read_json()
         con = db()
         try:
-            if p.startswith("/api/products/"):
-                pid = p[len("/api/products/"):]
-                cur = con.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
-                if not cur: return self.send_json({"error": "not_found"}, 404)
+            if p.startswith("/api/entries/"):
+                if not self.need_auth(con): return
+                eid = p[len("/api/entries/"):]
+                cur = con.execute("SELECT * FROM entries WHERE id=?", (eid,)).fetchone()
+                if not cur:
+                    return self.send_json({"error": "not_found"}, 404)
                 d = dict(cur)
-                for f in ("barcode", "name", "category"):
-                    if f in body and body[f] is not None: d[f] = str(body[f]).strip()
-                for f in ("price", "cost"):
-                    if f in body: d[f] = float(body[f] or 0)
-                if "stock" in body: d["stock"] = int(body["stock"] or 0)
-                try:
-                    con.execute("UPDATE products SET barcode=?,name=?,price=?,cost=?,stock=?,category=? WHERE id=?",
-                                (d["barcode"], d["name"], d["price"], d["cost"], d["stock"], d["category"], pid))
-                    con.commit()
-                except sqlite3.IntegrityError:
-                    return self.send_json({"error": "barcode_exists"}, 409)
-                r = con.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
-                return self.send_json(dict(r))
+                if "date" in body and body["date"]:
+                    nd = str(body["date"]).strip()
+                    if not valid_date(nd):
+                        return self.send_json({"error": "bad_date"}, 400)
+                    d["date"] = nd
+                if "item" in body and body["item"] is not None:
+                    v = str(body["item"]).strip()
+                    if not v:
+                        return self.send_json({"error": "item_required"}, 400)
+                    d["item"] = v
+                if "qty" in body:
+                    try:
+                        qv = float(body["qty"] or 0)
+                    except (ValueError, TypeError):
+                        return self.send_json({"error": "bad_qty"}, 400)
+                    if qv <= 0:
+                        return self.send_json({"error": "qty_must_be_positive"}, 400)
+                    d["qty"] = qv
+                if "price" in body:
+                    try:
+                        pv = float(body["price"] or 0)
+                    except (ValueError, TypeError):
+                        return self.send_json({"error": "bad_price"}, 400)
+                    if pv < 0:
+                        return self.send_json({"error": "price_cant_be_negative"}, 400)
+                    d["price"] = pv
+                if "payment" in body:
+                    d["payment"] = norm_payment(body["payment"])
+                if "note" in body and body["note"] is not None:
+                    d["note"] = str(body["note"])[:500]
+                d["subtotal"] = round(float(d["qty"]) * float(d["price"]), 2)
+                d["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                con.execute(
+                    "UPDATE entries SET date=?,item=?,qty=?,price=?,subtotal=?,payment=?,note=?,updated_at=? WHERE id=?",
+                    (d["date"], d["item"], d["qty"], d["price"], d["subtotal"],
+                     d["payment"], d["note"], d["updated_at"], eid))
+                con.commit()
+                r = con.execute("SELECT * FROM entries WHERE id=?", (eid,)).fetchone()
+                out = dict(r)
+                out["day"] = day_summary(con, d["date"])
+                return self.send_json(out)
+            if p == "/api/settings":
+                if not self.need_auth(con): return
+                for k in ("shop_name", "currency"):
+                    if k in body and body[k] is not None:
+                        con.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                                    (k, str(body[k]).strip()))
+                con.commit()
+                return self.send_json({"ok": True})
             self.send_error(404)
         finally:
             try: con.close()
             except Exception: pass
 
+    # ---------------- DELETE ----------------
     def do_DELETE(self):
         u = urlparse(self.path)
         p = u.path
         con = db()
         try:
-            if p.startswith("/api/products/"):
-                pid = p[len("/api/products/"):]
-                con.execute("DELETE FROM products WHERE id=?", (pid,))
-                con.commit()
-                return self.send_json({"ok": True})
-            if p.startswith("/api/sales/"):
-                sid = p[len("/api/sales/"):]
-                con.execute("DELETE FROM sale_items WHERE sale_id=?", (sid,))
-                con.execute("DELETE FROM sales WHERE id=?", (sid,))
+            if p.startswith("/api/entries/"):
+                if not self.need_auth(con): return
+                eid = p[len("/api/entries/"):]
+                con.execute("DELETE FROM entries WHERE id=?", (eid,))
                 con.commit()
                 return self.send_json({"ok": True})
             self.send_error(404)
@@ -495,7 +546,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     init_db()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Cashier POS running -> http://localhost:{PORT}")
+    print(f"My Sales Notes running -> http://localhost:{PORT}")
     print(f"Database: {DB_PATH}")
     if "--no-browser" not in sys.argv and not getattr(sys, "frozen", False):
         try:

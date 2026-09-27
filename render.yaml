@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sales-notes
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py --no-browser
+    healthCheckPath: /
+    envVars:
+      # Render injects PORT automatically; app reads $PORT with fallback.
+      - key: PYTHON_VERSION
+        value: 3.11.0
