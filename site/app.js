@@ -583,6 +583,13 @@ $('btnLogout').addEventListener('click', doLogout);
 $('btnPrevDay').addEventListener('click', () => shiftDay(-1));
 $('btnNextDay').addEventListener('click', () => shiftDay(1));
 $('btnToday').addEventListener('click', () => setViewDate(todayStr()));
+$('btnNewNote').addEventListener('click', () => {
+  // every date is its own note — "new note" opens today's fresh note
+  setViewDate(todayStr());
+  cancelEdit();
+  setTimeout(() => $('fItem').focus(), 60);
+  toast("Today's note — fresh every day", 'info', 1800);
+});
 $('btnCloseNote').addEventListener('click', closeNote);
 $('btnReopenNote').addEventListener('click', reopenNote);
 $('viewDate').addEventListener('change', e => { if (e.target.value) setViewDate(e.target.value); });
