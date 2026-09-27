@@ -11,13 +11,17 @@ No cashier system, no barcode, no stock. Just your own sales notes. Web app only
 - **no server, no install** — runs 100% in the browser, data stays in each device's localStorage
 
 ## Daily flow
-1. **Day note** tab opens on today. Change date with ‹ Prev / Next or the picker.
-2. Fill **Item, Qty, Price, Cash/QRIS, Date** → Save. Subtotal = qty × price.
-3. Top banner shows **total earnings + cash/qris split** for that day.
-4. Tomorrow = new empty note automatically. Old days stay in **History**.
-5. **🔒 Close note** when the day is done: locks it on all devices and snapshots
-   (accumulates) the final total. Closed days show a lock banner, hide the form,
-   and get a 🔒 badge in History with locked totals per month. **Reopen** to edit again.
+1. **Day tab** lists that day's notes. **+ New note** starts another note under the
+   same day (morning / evening / per customer — name them with ✏️ Rename).
+2. Tap a note to open it, then fill **Item, Qty, Price, Cash/QRIS** → Save.
+   Subtotal = qty × price. Each note has its own total + cash/qris split.
+3. The day header accumulates **all notes** of the day.
+4. Tomorrow = fresh day automatically. Old days stay in **History** (per-day
+   totals with note counts).
+5. **🔒 Close note** locks one note on all devices and snapshots (accumulates)
+   its final total. Closed notes show a lock banner and get a 🔒 badge with
+   locked totals per month. **Reopen** to edit again. Deleting a note removes
+   its sales (synced).
 
 ## Multiple devices — auto sync
 Sales sync automatically through Cloudflare Workers + D1 (free tier):

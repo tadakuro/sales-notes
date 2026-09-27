@@ -31,7 +31,9 @@ function authed(req, env) {
   return same(h.slice(7), env.SITE_KEY || '');
 }
 
-const COLS = 'id,date,item,qty,price,subtotal,payment,note,updated_at,deleted';
+const COLS = 'id,note_id,date,item,qty,price,subtotal,payment,note,updated_at,deleted';
+const NOTE_COLS = 'id,date,title,created_at,updated_at,deleted';
+const STATE_COLS = 'id,date,closed,total,cash_total,qris_total,count,closed_at,updated_at';
 
 export default {
   async fetch(req, env) {
@@ -42,21 +44,26 @@ export default {
     if (!authed(req, env)) return json({ error: 'unauthorized' }, 401);
 
     try {
-      // Pull everything changed since a timestamp (tombstones + day states included).
+      // Pull everything changed since a timestamp (tombstones + notes + lock states).
       if (req.method === 'GET' && url.pathname === '/api/pull') {
         const since = url.searchParams.get('since') || '1970-01-01T00:00:00';
         const { results } = await env.DB.prepare(
           `SELECT ${COLS} FROM entries WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 2000`
         ).bind(since).all();
-        let states = [];
+        let notes = [], states = [];
+        try {
+          const q = await env.DB.prepare(
+            `SELECT ${NOTE_COLS} FROM notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
+          ).bind(since).all();
+          notes = q.results || [];
+        } catch (e) { /* pre-notes DBs — entries still sync */ }
         try {
           const s = await env.DB.prepare(
-            `SELECT date,closed,total,cash_total,qris_total,count,closed_at,updated_at
-             FROM day_state WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
+            `SELECT ${STATE_COLS} FROM note_state WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
           ).bind(since).all();
           states = s.results || [];
-        } catch (e) { /* table missing on old DBs — entries still sync */ }
-        return json({ entries: results || [], states });
+        } catch (e) { /* pre-states DBs — entries still sync */ }
+        return json({ entries: results || [], notes, states });
       }
 
       // Push local changes. Newest updated_at wins per id, on both sides.
@@ -72,15 +79,15 @@ export default {
           if (!item) continue;
           const payment = String(e.payment || 'cash').toLowerCase() === 'qris' ? 'qris' : 'cash';
           stmts.push(env.DB.prepare(
-            `INSERT INTO entries (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?)
+            `INSERT INTO entries (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)
              ON CONFLICT(id) DO UPDATE SET
-               date=excluded.date, item=excluded.item, qty=excluded.qty,
+               note_id=excluded.note_id, date=excluded.date, item=excluded.item, qty=excluded.qty,
                price=excluded.price, subtotal=excluded.subtotal,
                payment=excluded.payment, note=excluded.note,
                updated_at=excluded.updated_at, deleted=excluded.deleted
              WHERE excluded.updated_at > entries.updated_at`
           ).bind(
-            e.id, e.date, item, qty, price,
+            e.id, String(e.note_id || ''), e.date, item, qty, price,
             Math.round(qty * price * 100) / 100, payment,
             String(e.note || '').slice(0, 500),
             String(e.updated_at || new Date().toISOString()),
@@ -88,24 +95,46 @@ export default {
           ));
         }
         if (stmts.length) await env.DB.batch(stmts);
-        // Day close-states. Newest updated_at wins per date.
+        // Notes. Newest updated_at wins per id.
+        let notesApplied = 0;
+        try {
+          const nchanges = Array.isArray(body.notes) ? body.notes.slice(0, 200) : [];
+          const nstmts = [];
+          for (const x of nchanges) {
+            if (!x || typeof x.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) continue;
+            nstmts.push(env.DB.prepare(
+              `INSERT INTO notes (${NOTE_COLS}) VALUES (?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET
+                 date=excluded.date, title=excluded.title, created_at=excluded.created_at,
+                 updated_at=excluded.updated_at, deleted=excluded.deleted
+               WHERE excluded.updated_at > notes.updated_at`
+            ).bind(
+              x.id, x.date, String(x.title || 'Note').slice(0, 60),
+              String(x.created_at || new Date().toISOString()),
+              String(x.updated_at || new Date().toISOString()),
+              x.deleted ? 1 : 0
+            ));
+          }
+          if (nstmts.length) await env.DB.batch(nstmts);
+          notesApplied = nstmts.length;
+        } catch (e) { /* table missing on old DBs — entries already saved */ }
+        // Per-note close-states. Newest updated_at wins per note id.
         let statesApplied = 0;
         try {
           const states = Array.isArray(body.states) ? body.states.slice(0, 200) : [];
           const sstmts = [];
           for (const s of states) {
-            if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s.date || '')) continue;
+            if (!s || typeof s.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s.date || '')) continue;
             const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
             sstmts.push(env.DB.prepare(
-              `INSERT INTO day_state (date,closed,total,cash_total,qris_total,count,closed_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?)
-               ON CONFLICT(date) DO UPDATE SET
-                 closed=excluded.closed, total=excluded.total, cash_total=excluded.cash_total,
-                 qris_total=excluded.qris_total, count=excluded.count,
-                 closed_at=excluded.closed_at, updated_at=excluded.updated_at
-               WHERE excluded.updated_at > day_state.updated_at`
+              `INSERT INTO note_state (${STATE_COLS}) VALUES (?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET
+                 date=excluded.date, closed=excluded.closed, total=excluded.total,
+                 cash_total=excluded.cash_total, qris_total=excluded.qris_total,
+                 count=excluded.count, closed_at=excluded.closed_at, updated_at=excluded.updated_at
+               WHERE excluded.updated_at > note_state.updated_at`
             ).bind(
-              s.date, s.closed ? 1 : 0, num(s.total), num(s.cash_total),
+              s.id, s.date, s.closed ? 1 : 0, num(s.total), num(s.cash_total),
               num(s.qris_total), Math.max(0, Math.floor(num(s.count))),
               String(s.closed_at || '').slice(0, 30),
               String(s.updated_at || new Date().toISOString())
@@ -114,7 +143,7 @@ export default {
           if (sstmts.length) await env.DB.batch(sstmts);
           statesApplied = sstmts.length;
         } catch (e) { /* table missing on old DBs — entries already saved */ }
-        return json({ ok: true, applied: stmts.length, statesApplied });
+        return json({ ok: true, applied: stmts.length, notesApplied, statesApplied });
       }
 
       return json({ error: 'not_found' }, 404);

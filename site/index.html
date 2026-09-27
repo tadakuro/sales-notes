@@ -34,6 +34,8 @@
   .day-row:hover{background:#f6f8fb}
   .closed-banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fff8e1;border:1.5px solid #f0d48a;border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:10px}
   .closed-banner b{color:#8a6d1b}
+  .notecard{cursor:pointer}
+  .notecard:hover{border-color:var(--brand)}
 </style>
 </head>
 <body>
@@ -65,7 +67,7 @@
 
 <main class="main">
 
-  <!-- ================= DAY NOTE ================= -->
+  <!-- ================= DAY ================= -->
   <section id="tab-note" class="tabpage">
     <div class="card">
       <div class="day-nav">
@@ -74,7 +76,6 @@
         <button id="btnNextDay" class="btn small">Next ›</button>
         <button id="btnToday" class="btn small primary">Today</button>
         <button id="btnNewNote" class="btn small primary">+ New note</button>
-        <button id="btnCloseNote" class="btn small">🔒 Close note</button>
         <span id="dayHint" class="muted"></span>
       </div>
     </div>
@@ -89,54 +90,73 @@
       </div>
     </div>
 
-    <div class="pos-layout" style="grid-template-columns:1fr 380px">
-      <div>
-        <div class="card">
-          <h2 id="entriesTitle">Today's sales</h2>
-          <p class="muted" style="margin:4px 0 10px">Newest at the bottom · auto-saved per day</p>
-          <div id="closedBanner" class="closed-banner hidden">🔒 <b>Note closed</b><span>· total <b id="closedTotal">–</b></span><button id="btnReopenNote" class="btn small">Reopen</button></div>
-          <div id="entries"></div>
-          <div id="entriesEmpty" class="empty hidden">No sales yet for this day.<br><small>Add your first sale on the right →</small></div>
+    <!-- notes list for the day -->
+    <div id="notesListWrap" class="card">
+      <h2 id="notesTitle">Today's notes</h2>
+      <p class="muted" style="margin:4px 0 10px">One day, many notes — tap one to open it</p>
+      <div id="notesList"></div>
+      <div id="notesEmpty" class="empty hidden">No notes for this day yet.<br><small>Press <b>+ New note</b> above to start one.</small></div>
+    </div>
+
+    <!-- one open note -->
+    <div id="noteDetailWrap" class="hidden">
+      <div class="card">
+        <div class="day-nav">
+          <button id="btnBackNotes" class="btn small">‹ Notes</button>
+          <h2 id="noteTitle" style="flex:1">Note</h2>
+          <button id="btnRenameNote" class="btn small">✏️ Rename</button>
+          <button id="btnCloseNote" class="btn small">🔒 Close note</button>
         </div>
       </div>
-
-      <aside class="cart-panel">
-        <div class="card add-card" id="addCard">
-          <h2 id="formTitle">+ Add sale</h2>
-          <input type="hidden" id="editId">
-          <label for="fItem">Item name *</label>
-          <input id="fItem" placeholder="Item name" autocomplete="off">
-          <div class="form-2col">
-            <div>
-              <label for="fQty">Quantity *</label>
-              <input id="fQty" type="number" min="0.01" step="any" value="1" inputmode="decimal">
-            </div>
-            <div>
-              <label for="fPrice">Price (each) *</label>
-              <input id="fPrice" type="number" min="0" step="any" value="" placeholder="0" inputmode="decimal">
-            </div>
+      <div class="pos-layout" style="grid-template-columns:1fr 380px">
+        <div>
+          <div class="card">
+            <h2 id="entriesTitle">Sales</h2>
+            <p class="muted" style="margin:4px 0 10px">Newest at the bottom · auto-saved</p>
+            <div id="closedBanner" class="closed-banner hidden">🔒 <b>Note closed</b><span>· total <b id="closedTotal">–</b></span><button id="btnReopenNote" class="btn small">Reopen</button></div>
+            <div id="entries"></div>
+            <div id="entriesEmpty" class="empty hidden">No sales in this note yet.<br><small>Add the first one on the right →</small></div>
           </div>
-          <label>Payment *</label>
-          <div class="pay-seg">
-            <button id="payCash" class="active-cash">💵 Cash</button>
-            <button id="payQris">📱 QRIS</button>
-          </div>
-          <div class="form-2col">
-            <div>
-              <label for="fDate">Date *</label>
-              <input id="fDate" type="date">
-            </div>
-            <div>
-              <label for="fSub">Subtotal</label>
-              <input id="fSub" disabled value="0">
-            </div>
-          </div>
-          <label for="fNote">Note (optional)</label>
-          <input id="fNote" placeholder="e.g. regular customer" autocomplete="off">
-          <button id="btnSave" class="btn primary big">💾 Save sale</button>
-          <button id="btnCancelEdit" class="btn ghost big hidden">Cancel edit</button>
         </div>
-      </aside>
+
+        <aside class="cart-panel">
+          <div class="card add-card" id="addCard">
+            <h2 id="formTitle">+ Add sale</h2>
+            <input type="hidden" id="editId">
+            <label for="fItem">Item name *</label>
+            <input id="fItem" placeholder="Item name" autocomplete="off">
+            <div class="form-2col">
+              <div>
+                <label for="fQty">Quantity *</label>
+                <input id="fQty" type="number" min="0.01" step="any" value="1" inputmode="decimal">
+              </div>
+              <div>
+                <label for="fPrice">Price (each) *</label>
+                <input id="fPrice" type="number" min="0" step="any" value="" placeholder="0" inputmode="decimal">
+              </div>
+            </div>
+            <label>Payment *</label>
+            <div class="pay-seg">
+              <button id="payCash" class="active-cash">💵 Cash</button>
+              <button id="payQris">📱 QRIS</button>
+            </div>
+            <div class="form-2col">
+              <div>
+                <label for="fDate">Date</label>
+                <input id="fDate" type="date" disabled title="Sales belong to the open note's date">
+              </div>
+              <div>
+                <label for="fSub">Subtotal</label>
+                <input id="fSub" disabled value="0">
+              </div>
+            </div>
+            <label for="fNote">Note (optional)</label>
+            <input id="fNote" placeholder="e.g. regular customer" autocomplete="off">
+            <button id="btnSave" class="btn primary big">💾 Save sale</button>
+            <button id="btnCancelEdit" class="btn ghost big hidden">Cancel edit</button>
+          </div>
+        </aside>
+      </div>
     </div>
   </section>
 
