@@ -6,7 +6,13 @@
 const SITE_KEY_HASH = "__SITE_KEY_HASH__";
 const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.startsWith('__');
 
+/* Optional cloud sync (Cloudflare Worker + D1). __SYNC_URL__ is replaced at
+   deploy time with the worker URL (or empty = offline-only localStorage mode). */
+const SYNC_URL = "__SYNC_URL__";
+const SYNC_ON = typeof SYNC_URL === 'string' && SYNC_URL.startsWith('http');
+
 let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
+let sessionKey = sessionStorage.getItem('sn_key') || null; // raw site key, tab session only
 const localDay = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 const todayStr = () => localDay(new Date());
 let viewDate = todayStr();
@@ -20,9 +26,32 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 /* ---------- storage ---------- */
 const LS_E = 'sn_entries', LS_S = 'sn_settings', LS_P = 'sn_pin';
+const LS_D = 'sn_dirty', LS_LP = 'sn_last_pull', LS_MG = 'sn_migrated';
 const loadEntries = () => { try { return JSON.parse(localStorage.getItem(LS_E)) || []; } catch (e) { return []; } };
 const saveEntries = list => localStorage.setItem(LS_E, JSON.stringify(list));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const nowIso = () => new Date().toISOString();
+
+// one-time: give old entries the sync fields and queue everything for upload
+function migrate() {
+  const all = loadEntries();
+  let touched = false;
+  all.forEach(e => {
+    if (!e.updated_at) { e.updated_at = e.created_at || nowIso(); touched = true; }
+    if (e.deleted === undefined) { e.deleted = 0; touched = true; }
+  });
+  if (touched) saveEntries(all);
+  if (!localStorage.getItem(LS_MG)) {
+    localStorage.setItem(LS_D, JSON.stringify(all.map(e => e.id)));
+    localStorage.setItem(LS_MG, '1');
+  }
+}
+function markDirty(id) {
+  try {
+    const d = JSON.parse(localStorage.getItem(LS_D) || '[]');
+    if (!d.includes(id)) { d.push(id); localStorage.setItem(LS_D, JSON.stringify(d)); }
+  } catch (e) {}
+}
 
 async function hashPin(pin) {
   try {
@@ -105,6 +134,8 @@ async function doSetup() {
   if (a.length < 4) { authErr('Key min. 4 chars.'); return; }
   if (a !== b) { authErr('Keys do not match.'); return; }
   localStorage.setItem(LS_P, await hashPin(a));
+  sessionKey = a;
+  sessionStorage.setItem('sn_key', a);
   sessionStorage.setItem('sn_unlocked', '1');
   $('setupKey').value = ''; $('setupKey2').value = '';
   hideAuth(); afterLogin();
@@ -116,22 +147,28 @@ async function doLogin() {
   const want = SITE_ENFORCED ? SITE_KEY_HASH : localStorage.getItem(LS_P);
   if ((await hashPin(k)) !== want) { authErr('Wrong key — try again.'); return; }
   $('loginKey').value = '';
+  sessionKey = k;
+  sessionStorage.setItem('sn_key', k);
   sessionStorage.setItem('sn_unlocked', '1');
   hideAuth(); afterLogin();
   toast('Unlocked ✓', 'ok');
 }
 function doLogout() {
   sessionStorage.removeItem('sn_unlocked');
+  sessionStorage.removeItem('sn_key');
+  sessionKey = null;
   cancelEdit();
   showAuth(); checkGate();
 }
 function afterLogin() {
   loadSettings(); refreshTitles();
+  migrate();
   viewDate = todayStr();
   $('viewDate').value = viewDate;
   $('fDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   loadDay(); loadHistory();
+  syncNow();
   setTimeout(() => $('fItem').focus(), 80);
 }
 
@@ -175,7 +212,7 @@ function applyKeyModeUI() {
 }
 
 // ---------- day note ----------
-function dayList(date) { return loadEntries().filter(e => e.date === date).sort((a, b) => a.created_at.localeCompare(b.created_at)); }
+function dayList(date) { return loadEntries().filter(e => !e.deleted && e.date === date).sort((a, b) => a.created_at.localeCompare(b.created_at)); }
 function summarize(list) {
   const s = { total: 0, count: list.length, cash_total: 0, cash_count: 0, qris_total: 0, qris_count: 0 };
   list.forEach(e => {
@@ -189,7 +226,7 @@ function summarize(list) {
   return s;
 }
 function loadStats() {
-  const all = loadEntries(), t = todayStr(), m = t.slice(0, 7);
+  const all = loadEntries().filter(e => !e.deleted), t = todayStr(), m = t.slice(0, 7);
   const td = summarize(all.filter(e => e.date === t));
   const mo = summarize(all.filter(e => e.date.slice(0, 7) === m));
   $('stToday').textContent = money(td.total);
@@ -281,28 +318,40 @@ function saveEntry() {
   if (editingId) {
     const i = all.findIndex(e => e.id === editingId);
     if (i < 0) { toast('Not found', 'err'); cancelEdit(); return; }
-    all[i] = { ...all[i], date: dt, item, qty, price, subtotal: sub, payment: payMethod, note };
+    all[i] = { ...all[i], date: dt, item, qty, price, subtotal: sub, payment: payMethod, note, updated_at: now, deleted: 0 };
     saveEntries(all);
+    markDirty(editingId);
     toast('Updated ✓', 'ok');
   } else {
-    all.push({ id: uid(), date: dt, item, qty, price, subtotal: sub, payment: payMethod, note, created_at: now });
+    const id = uid();
+    all.push({ id, date: dt, item, qty, price, subtotal: sub, payment: payMethod, note, created_at: now, updated_at: now, deleted: 0 });
     saveEntries(all);
+    markDirty(id);
     toast(item + ' saved ✓', 'ok', 1500);
   }
   if (dt !== viewDate) setViewDate(dt); else loadDay();
   cancelEdit();
+  syncSoon();
   setTimeout(() => $('fItem').focus(), 50);
 }
 function delEntry(id) {
   if (!confirm('Delete this sale?')) return;
-  saveEntries(loadEntries().filter(e => e.id !== id));
+  const all = loadEntries();
+  const i = all.findIndex(e => e.id === id);
+  if (i >= 0) {
+    all[i] = { ...all[i], deleted: 1, updated_at: nowIso() }; // tombstone: propagates the delete to other devices
+    saveEntries(all);
+    markDirty(id);
+  }
+  if (editingId === id) cancelEdit();
   toast('Deleted', 'ok'); loadDay();
+  syncSoon();
 }
 
 // ---------- history ----------
 function loadHistory() {
   const m = $('histMonth').value || todayStr().slice(0, 7);
-  const inMonth = loadEntries().filter(e => e.date.slice(0, 7) === m);
+  const inMonth = loadEntries().filter(e => !e.deleted && e.date.slice(0, 7) === m);
   const byDay = {};
   inMonth.forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
   const days = Object.keys(byDay).sort().reverse().map(d => ({ date: d, ...summarize(byDay[d]) }));
@@ -348,14 +397,18 @@ async function importDB() {
   let list = ow ? [] : loadEntries();
   let n = 0;
   // normalize entries from our export or legacy python-server exports
+  const stamp = new Date().toISOString();
   (Array.isArray(incoming) ? incoming : []).forEach(e => {
     const date = String(e.date || '').trim();
     const item = String(e.item || e.name || '').trim();
     const qty = Number(e.qty ?? 1), price = Number(e.price ?? 0);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !item || !(qty > 0) || !(price >= 0)) return;
     const payment = String(e.payment || 'cash').toLowerCase() === 'qris' ? 'qris' : 'cash';
-    list.push({ id: uid(), date, item, qty, price, subtotal: Math.round(qty * price * 100) / 100,
-      payment, note: String(e.note || '').slice(0, 500), created_at: e.created_at || new Date().toISOString() });
+    const id = uid();
+    list.push({ id, date, item, qty, price, subtotal: Math.round(qty * price * 100) / 100,
+      payment, note: String(e.note || '').slice(0, 500), created_at: e.created_at || stamp,
+      updated_at: stamp, deleted: e.deleted ? 1 : 0 });
+    markDirty(id);
     n++;
   });
   if (j.settings) {
@@ -368,7 +421,65 @@ async function importDB() {
   $('importFile').value = '';
   toast('Imported ' + n + ' sales', 'ok');
   loadDay(); loadHistory();
+  syncSoon();
 }
+
+// ---------- cloud sync (offline-first) ----------
+// Local-first: everything works without network. When SYNC_URL is set,
+// dirty entries push up and newer remote entries merge down (newest updated_at wins).
+let syncing = false, syncTimer = null;
+function setSyncState(s) {
+  const el = $('syncDot');
+  if (!el) return;
+  const map = { ok: ['✓', 'synced'], sync: ['…', 'syncing…'], offline: ['✕', 'offline — saved on this device'],
+    off: ['–', 'sync off'], key: ['!', 'sync rejected: wrong key'] };
+  const [t, title] = map[s] || map.off;
+  el.textContent = t; el.title = title;
+}
+async function syncNow() {
+  if (!SYNC_ON) { setSyncState('off'); return; }
+  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') return;
+  if (syncing || !navigator.onLine) { if (!navigator.onLine) setSyncState('offline'); return; }
+  syncing = true; setSyncState('sync');
+  try {
+    const dirtyIds = JSON.parse(localStorage.getItem(LS_D) || '[]');
+    if (dirtyIds.length) {
+      const changes = loadEntries().filter(e => dirtyIds.includes(e.id)).slice(0, 500);
+      const r = await fetch(SYNC_URL + '/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
+        body: JSON.stringify({ changes }),
+      });
+      if (r.status === 401) { setSyncState('key'); syncing = false; return; }
+      if (!r.ok) throw new Error('push ' + r.status);
+      const pushed = new Set(changes.map(e => e.id));
+      localStorage.setItem(LS_D, JSON.stringify(dirtyIds.filter(id => !pushed.has(id))));
+    }
+    const since = localStorage.getItem(LS_LP) || '1970-01-01T00:00:00';
+    const r2 = await fetch(SYNC_URL + '/api/pull?since=' + encodeURIComponent(since), {
+      headers: { 'Authorization': 'Bearer ' + sessionKey },
+    });
+    if (r2.status === 401) { setSyncState('key'); syncing = false; return; }
+    if (!r2.ok) throw new Error('pull ' + r2.status);
+    const { entries: remote } = await r2.json();
+    if (remote && remote.length) {
+      const map = {};
+      loadEntries().forEach(e => { map[e.id] = e; });
+      remote.forEach(re => {
+        const cur = map[re.id];
+        if (!cur || (re.updated_at || '') > (cur.updated_at || '')) map[re.id] = re;
+      });
+      saveEntries(Object.values(map));
+      localStorage.setItem(LS_LP, remote.reduce((mx, e) => (e.updated_at > mx ? e.updated_at : mx), since));
+    } else {
+      localStorage.setItem(LS_LP, nowIso());
+    }
+    setSyncState('ok');
+    loadDay(); loadHistory();
+  } catch (e) { setSyncState('offline'); }
+  syncing = false;
+}
+function syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 1500); }
 
 // ---------- bind ----------
 $('btnSetup').addEventListener('click', doSetup);
@@ -403,7 +514,10 @@ $('btnImport').addEventListener('click', importDB);
   $('fDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   setPay('cash'); updSub();
+  setSyncState(SYNC_ON ? 'offline' : 'off');
   applyKeyModeUI();
   checkGate();
-  if (sessionStorage.getItem('sn_unlocked') === '1' && (SITE_ENFORCED || localStorage.getItem(LS_P))) { loadDay(); loadHistory(); }
+  if (sessionStorage.getItem('sn_unlocked') === '1' && (SITE_ENFORCED || localStorage.getItem(LS_P))) { migrate(); loadDay(); loadHistory(); syncNow(); }
+  setInterval(() => { if (sessionStorage.getItem('sn_unlocked') === '1') syncNow(); }, 30000);
+  window.addEventListener('online', syncNow);
 })();

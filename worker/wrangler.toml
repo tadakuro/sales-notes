@@ -1,0 +1,15 @@
+name = "sales-notes-sync"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# Attach the database after creating it:
+#   wrangler d1 create sales-notes
+# then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "sales-notes"
+database_id = "REPLACE_AFTER_CREATE"
+
+# Secrets (never in git) — set with:
+#   wrangler secret put SITE_KEY
+# (same value as the SITE_KEY GitHub secret; the site sends it as a Bearer token)

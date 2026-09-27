@@ -19,14 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inject site key hash
+      - name: Inject site config
         env:
           SITE_KEY: ${{ secrets.SITE_KEY }}
+          SYNC_URL: ${{ secrets.SYNC_URL }}
         run: |
           if [ -z "$SITE_KEY" ]; then echo "SITE_KEY secret is not set"; exit 1; fi
           HASH=$(printf '%s' "sn::$SITE_KEY" | sha256sum | cut -d' ' -f1)
           sed -i "s/__SITE_KEY_HASH__/$HASH/" site/app.js
           if grep -q "__SITE_KEY_HASH__" site/app.js; then echo "hash injection failed"; exit 1; fi
+          URL_ESC=$(printf '%s' "${SYNC_URL:-}" | sed 's/[&|]/\\&/g')
+          sed -i "s|__SYNC_URL__|${URL_ESC}|g" site/app.js
+          if grep -q "__SYNC_URL__" site/app.js; then echo "sync url injection failed"; exit 1; fi
           sed -i "s/__BUILD_ID__/$GITHUB_SHA/" site/index.html
           if grep -q "__BUILD_ID__" site/index.html; then echo "build id injection failed"; exit 1; fi
           echo "injected ok"
