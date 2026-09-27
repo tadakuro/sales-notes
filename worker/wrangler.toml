@@ -8,7 +8,7 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "sales-notes"
-database_id = "REPLACE_AFTER_CREATE"
+database_id = "521747c3-78af-4dd7-b720-8008e79cf56c"
 
 # Secrets (never in git) — set with:
 #   wrangler secret put SITE_KEY
