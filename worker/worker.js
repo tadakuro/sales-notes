@@ -42,13 +42,21 @@ export default {
     if (!authed(req, env)) return json({ error: 'unauthorized' }, 401);
 
     try {
-      // Pull everything changed since a timestamp (tombstones included).
+      // Pull everything changed since a timestamp (tombstones + day states included).
       if (req.method === 'GET' && url.pathname === '/api/pull') {
         const since = url.searchParams.get('since') || '1970-01-01T00:00:00';
         const { results } = await env.DB.prepare(
           `SELECT ${COLS} FROM entries WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 2000`
         ).bind(since).all();
-        return json({ entries: results || [] });
+        let states = [];
+        try {
+          const s = await env.DB.prepare(
+            `SELECT date,closed,total,cash_total,qris_total,count,closed_at,updated_at
+             FROM day_state WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
+          ).bind(since).all();
+          states = s.results || [];
+        } catch (e) { /* table missing on old DBs — entries still sync */ }
+        return json({ entries: results || [], states });
       }
 
       // Push local changes. Newest updated_at wins per id, on both sides.
@@ -80,7 +88,33 @@ export default {
           ));
         }
         if (stmts.length) await env.DB.batch(stmts);
-        return json({ ok: true, applied: stmts.length });
+        // Day close-states. Newest updated_at wins per date.
+        let statesApplied = 0;
+        try {
+          const states = Array.isArray(body.states) ? body.states.slice(0, 200) : [];
+          const sstmts = [];
+          for (const s of states) {
+            if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s.date || '')) continue;
+            const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+            sstmts.push(env.DB.prepare(
+              `INSERT INTO day_state (date,closed,total,cash_total,qris_total,count,closed_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(date) DO UPDATE SET
+                 closed=excluded.closed, total=excluded.total, cash_total=excluded.cash_total,
+                 qris_total=excluded.qris_total, count=excluded.count,
+                 closed_at=excluded.closed_at, updated_at=excluded.updated_at
+               WHERE excluded.updated_at > day_state.updated_at`
+            ).bind(
+              s.date, s.closed ? 1 : 0, num(s.total), num(s.cash_total),
+              num(s.qris_total), Math.max(0, Math.floor(num(s.count))),
+              String(s.closed_at || '').slice(0, 30),
+              String(s.updated_at || new Date().toISOString())
+            ));
+          }
+          if (sstmts.length) await env.DB.batch(sstmts);
+          statesApplied = sstmts.length;
+        } catch (e) { /* table missing on old DBs — entries already saved */ }
+        return json({ ok: true, applied: stmts.length, statesApplied });
       }
 
       return json({ error: 'not_found' }, 404);

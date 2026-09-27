@@ -14,3 +14,15 @@ CREATE TABLE IF NOT EXISTS entries (
 );
 CREATE INDEX IF NOT EXISTS idx_entries_updated ON entries(updated_at);
 CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
+
+-- Per-day close state (locked notes + snapshotted totals). Synced like entries.
+CREATE TABLE IF NOT EXISTS day_state (
+    date TEXT PRIMARY KEY,
+    closed INTEGER NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    cash_total REAL NOT NULL DEFAULT 0,
+    qris_total REAL NOT NULL DEFAULT 0,
+    count INTEGER NOT NULL DEFAULT 0,
+    closed_at TEXT DEFAULT '',
+    updated_at TEXT NOT NULL
+);

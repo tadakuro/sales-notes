@@ -27,6 +27,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 /* ---------- storage ---------- */
 const LS_E = 'sn_entries', LS_S = 'sn_settings', LS_P = 'sn_pin';
 const LS_D = 'sn_dirty', LS_LP = 'sn_last_pull', LS_MG = 'sn_migrated';
+const LS_ST = 'sn_states', LS_DS = 'sn_dirty_states';
 const loadEntries = () => { try { return JSON.parse(localStorage.getItem(LS_E)) || []; } catch (e) { return []; } };
 const saveEntries = list => localStorage.setItem(LS_E, JSON.stringify(list));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -45,11 +46,54 @@ function migrate() {
     localStorage.setItem(LS_D, JSON.stringify(all.map(e => e.id)));
     localStorage.setItem(LS_MG, '1');
   }
+  if (!localStorage.getItem(LS_ST)) saveStates({});
+}
+
+// ---------- close / reopen note ----------
+// Closing locks the day on ALL devices and snapshots (accumulates) its final totals.
+function closeNote() {
+  const list = dayList(viewDate);
+  if (isClosed(viewDate)) { toast('Already closed', 'info'); return; }
+  if (!list.length) { toast('Add at least one sale before closing', 'err'); return; }
+  const s = summarize(list);
+  if (!confirm(`Close note for ${viewDate}?\nTotal ${money(s.total)} · ${s.count} sales (Cash ${money(s.cash_total)}, QRIS ${money(s.qris_total)}).\nIt will be locked on all devices.`)) return;
+  const now = nowIso();
+  const states = loadStates();
+  states[viewDate] = { closed: 1, total: s.total, cash_total: s.cash_total, qris_total: s.qris_total,
+    count: s.count, closed_at: now, updated_at: now };
+  saveStates(states);
+  markDirtyState(viewDate);
+  cancelEdit();
+  toast('Note closed 🔒 total ' + money(s.total), 'ok');
+  loadDay(); loadHistory();
+  syncSoon();
+}
+function reopenNote() {
+  if (!isClosed(viewDate)) return;
+  if (!confirm(`Reopen note for ${viewDate}?\nIt becomes editable again on all devices.`)) return;
+  const states = loadStates();
+  const cur = getState(viewDate);
+  states[viewDate] = { ...cur, closed: 0, updated_at: nowIso() };
+  saveStates(states);
+  markDirtyState(viewDate);
+  toast('Note reopened', 'ok');
+  loadDay(); loadHistory();
+  syncSoon();
 }
 function markDirty(id) {
   try {
     const d = JSON.parse(localStorage.getItem(LS_D) || '[]');
     if (!d.includes(id)) { d.push(id); localStorage.setItem(LS_D, JSON.stringify(d)); }
+  } catch (e) {}
+}
+const loadStates = () => { try { return JSON.parse(localStorage.getItem(LS_ST)) || {}; } catch (e) { return {}; } };
+const saveStates = s => localStorage.setItem(LS_ST, JSON.stringify(s));
+const getState = date => loadStates()[date] || { closed: 0, total: 0, cash_total: 0, qris_total: 0, count: 0, closed_at: '', updated_at: '' };
+const isClosed = date => getState(date).closed === 1;
+function markDirtyState(date) {
+  try {
+    const d = JSON.parse(localStorage.getItem(LS_DS) || '[]');
+    if (!d.includes(date)) { d.push(date); localStorage.setItem(LS_DS, JSON.stringify(d)); }
   } catch (e) {}
 }
 
@@ -254,6 +298,13 @@ function loadDay() {
   $('qrisCount').textContent = s.qris_count;
   $('dayCount').textContent = s.count;
   $('entriesTitle').textContent = isToday ? "Today's sales" : ('Sales · ' + viewDate);
+  const locked = isClosed(viewDate);
+  const snap = getState(viewDate);
+  $('btnCloseNote').classList.toggle('hidden', locked);
+  const banner = $('closedBanner');
+  banner.classList.toggle('hidden', !locked);
+  if (locked) $('closedTotal').textContent = money(snap.total) + ' · ' + snap.count + ' sales';
+  $('addCard').classList.toggle('hidden', locked);
   const box = $('entries'); box.innerHTML = '';
   $('entriesEmpty').classList.toggle('hidden', list.length > 0);
   list.forEach(e => {
@@ -262,10 +313,12 @@ function loadDay() {
     d.innerHTML = `<div><div class="ename">${esc(e.item)}</div>
       <div class="emeta">${Number(e.qty)} × ${esc(money(e.price))} · <span class="paybadge ${e.payment}">${e.payment === 'qris' ? '📱 QRIS' : '💵 Cash'}</span>${e.note ? ' · ' + esc(e.note) : ''}</div></div>
       <div class="esub">${esc(money(e.subtotal))}</div>
-      <div class="eactions"><button class="btn small">Edit</button> <button class="btn small ghost">Delete</button></div>`;
-    const [bE, bD] = d.querySelectorAll('button');
-    bE.addEventListener('click', () => startEdit(e));
-    bD.addEventListener('click', () => delEntry(e.id));
+      ${locked ? '' : '<div class="eactions"><button class="btn small">Edit</button> <button class="btn small ghost">Delete</button></div>'}`;
+    if (!locked) {
+      const [bE, bD] = d.querySelectorAll('button');
+      bE.addEventListener('click', () => startEdit(e));
+      bD.addEventListener('click', () => delEntry(e.id));
+    }
     box.appendChild(d);
   });
   loadStats();
@@ -312,6 +365,7 @@ function saveEntry() {
   if (!(qty > 0)) { toast('Quantity must be > 0', 'err'); $('fQty').focus(); return; }
   if (!isFinite(price) || price < 0) { toast('Price required (0 allowed)', 'err'); $('fPrice').focus(); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dt)) { toast('Bad date', 'err'); return; }
+  if (isClosed(dt)) { toast('Note is closed 🔒 — reopen it to edit', 'err'); return; }
   const all = loadEntries();
   const sub = Math.round(qty * price * 100) / 100;
   const now = new Date().toISOString();
@@ -338,6 +392,8 @@ function delEntry(id) {
   if (!confirm('Delete this sale?')) return;
   const all = loadEntries();
   const i = all.findIndex(e => e.id === id);
+  if (i < 0) return;
+  if (isClosed(all[i].date)) { toast('Note is closed 🔒 — reopen it to edit', 'err'); return; }
   if (i >= 0) {
     all[i] = { ...all[i], deleted: 1, updated_at: nowIso() }; // tombstone: propagates the delete to other devices
     saveEntries(all);
@@ -356,16 +412,21 @@ function loadHistory() {
   inMonth.forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
   const days = Object.keys(byDay).sort().reverse().map(d => ({ date: d, ...summarize(byDay[d]) }));
   const mt = summarize(inMonth);
+  const states = loadStates();
+  let lockedTotal = 0, lockedDays = 0;
+  days.forEach(d => { if (states[d.date] && states[d.date].closed === 1) { lockedDays++; lockedTotal += d.total; } });
   $('histTotal').textContent = money(mt.total);
-  $('histCount').textContent = days.length + ' selling days · ' + mt.count + ' sales';
+  $('histCount').textContent = days.length + ' selling days · ' + mt.count + ' sales' +
+    (lockedDays ? ` · 🔒 ${money(Math.round(lockedTotal * 100) / 100)} locked (${lockedDays}d)` : '');
   $('histAvg').textContent = money(days.length ? mt.total / days.length : 0);
   $('histLabel').textContent = m;
   const tb = $('histTable').querySelector('tbody'); tb.innerHTML = '';
   if (!days.length) { tb.innerHTML = '<tr><td colspan="5" class="muted center">No sales this month.</td></tr>'; return; }
   days.forEach(d => {
+    const lockedDay = states[d.date] && states[d.date].closed === 1;
     const tr = document.createElement('tr');
     tr.className = 'day-row';
-    tr.innerHTML = `<td><b>${esc(d.date)}</b></td><td>${d.count}</td><td class="muted">${esc(money(d.cash_total))}</td><td class="muted">${esc(money(d.qris_total))}</td><td><b>${esc(money(d.total))}</b></td>`;
+    tr.innerHTML = `<td><b>${lockedDay ? '🔒 ' : ''}${esc(d.date)}</b></td><td>${d.count}</td><td class="muted">${esc(money(d.cash_total))}</td><td class="muted">${esc(money(d.qris_total))}</td><td><b>${esc(money(d.total))}</b></td>`;
     tr.addEventListener('click', () => {
       setViewDate(d.date);
       document.querySelectorAll('nav.tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.tab === 'note'));
@@ -378,7 +439,7 @@ function loadHistory() {
 
 // ---------- backup ----------
 function exportDB() {
-  const blob = new Blob([JSON.stringify({ entries: loadEntries(), settings, exported_at: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ entries: loadEntries(), states: loadStates(), settings, exported_at: new Date().toISOString() }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'sales-notes-' + todayStr() + '.json';
@@ -395,7 +456,7 @@ async function importDB() {
   if (!incoming) { toast('Bad backup file', 'err'); return; }
   const ow = confirm('OK = REPLACE all current notes with backup\nCancel = ADD backup on top (keep current)');
   let list = ow ? [] : loadEntries();
-  let n = 0;
+  let n = 0, skippedClosed = 0;
   // normalize entries from our export or legacy python-server exports
   const stamp = new Date().toISOString();
   (Array.isArray(incoming) ? incoming : []).forEach(e => {
@@ -403,6 +464,7 @@ async function importDB() {
     const item = String(e.item || e.name || '').trim();
     const qty = Number(e.qty ?? 1), price = Number(e.price ?? 0);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !item || !(qty > 0) || !(price >= 0)) return;
+    if (!ow && isClosed(date)) { skippedClosed++; return; } // never write into a locked note
     const payment = String(e.payment || 'cash').toLowerCase() === 'qris' ? 'qris' : 'cash';
     const id = uid();
     list.push({ id, date, item, qty, price, subtotal: Math.round(qty * price * 100) / 100,
@@ -411,6 +473,23 @@ async function importDB() {
     markDirty(id);
     n++;
   });
+  if (j.states && typeof j.states === 'object') {
+    const states = loadStates();
+    Object.keys(j.states).forEach(d => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+      const s = j.states[d] || {};
+      const cur = states[d];
+      const upd = String(s.updated_at || '');
+      if (ow || !cur || upd > (cur.updated_at || '')) {
+        states[d] = { closed: s.closed ? 1 : 0, total: Number(s.total) || 0,
+          cash_total: Number(s.cash_total) || 0, qris_total: Number(s.qris_total) || 0,
+          count: Math.max(0, Math.floor(Number(s.count) || 0)),
+          closed_at: String(s.closed_at || '').slice(0, 30), updated_at: upd || stamp };
+        markDirtyState(d);
+      }
+    });
+    saveStates(states);
+  }
   if (j.settings) {
     if (j.settings.shop_name) settings.shop_name = String(j.settings.shop_name).slice(0, 80);
     if (j.settings.currency) settings.currency = String(j.settings.currency).slice(0, 10);
@@ -419,7 +498,7 @@ async function importDB() {
   }
   saveEntries(list);
   $('importFile').value = '';
-  toast('Imported ' + n + ' sales', 'ok');
+  toast('Imported ' + n + ' sales' + (skippedClosed ? ` (${skippedClosed} skipped — closed notes)` : ''), 'ok');
   loadDay(); loadHistory();
   syncSoon();
 }
@@ -443,17 +522,22 @@ async function syncNow() {
   syncing = true; setSyncState('sync');
   try {
     const dirtyIds = JSON.parse(localStorage.getItem(LS_D) || '[]');
-    if (dirtyIds.length) {
+    const dirtyDates = JSON.parse(localStorage.getItem(LS_DS) || '[]');
+    if (dirtyIds.length || dirtyDates.length) {
       const changes = loadEntries().filter(e => dirtyIds.includes(e.id)).slice(0, 500);
+      const states = loadStates();
+      const stateChanges = dirtyDates.filter(d => states[d]).map(d => ({ date: d, ...states[d] })).slice(0, 200);
       const r = await fetch(SYNC_URL + '/api/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
-        body: JSON.stringify({ changes }),
+        body: JSON.stringify({ changes, states: stateChanges }),
       });
       if (r.status === 401) { setSyncState('key'); syncing = false; return; }
       if (!r.ok) throw new Error('push ' + r.status);
       const pushed = new Set(changes.map(e => e.id));
       localStorage.setItem(LS_D, JSON.stringify(dirtyIds.filter(id => !pushed.has(id))));
+      const pushedDates = new Set(stateChanges.map(s => s.date));
+      localStorage.setItem(LS_DS, JSON.stringify(dirtyDates.filter(d => !pushedDates.has(d))));
     }
     const since = localStorage.getItem(LS_LP) || '1970-01-01T00:00:00';
     const r2 = await fetch(SYNC_URL + '/api/pull?since=' + encodeURIComponent(since), {
@@ -461,19 +545,28 @@ async function syncNow() {
     });
     if (r2.status === 401) { setSyncState('key'); syncing = false; return; }
     if (!r2.ok) throw new Error('pull ' + r2.status);
-    const { entries: remote } = await r2.json();
+    const { entries: remote, states: remoteStates } = await r2.json();
+    let newest = since;
     if (remote && remote.length) {
       const map = {};
       loadEntries().forEach(e => { map[e.id] = e; });
       remote.forEach(re => {
         const cur = map[re.id];
         if (!cur || (re.updated_at || '') > (cur.updated_at || '')) map[re.id] = re;
+        if (re.updated_at > newest) newest = re.updated_at;
       });
       saveEntries(Object.values(map));
-      localStorage.setItem(LS_LP, remote.reduce((mx, e) => (e.updated_at > mx ? e.updated_at : mx), since));
-    } else {
-      localStorage.setItem(LS_LP, nowIso());
     }
+    if (remoteStates && remoteStates.length) {
+      const states = loadStates();
+      remoteStates.forEach(rs => {
+        const cur = states[rs.date];
+        if (!cur || (rs.updated_at || '') > (cur.updated_at || '')) states[rs.date] = rs;
+        if (rs.updated_at > newest) newest = rs.updated_at;
+      });
+      saveStates(states);
+    }
+    localStorage.setItem(LS_LP, (remote && remote.length) || (remoteStates && remoteStates.length) ? newest : nowIso());
     setSyncState('ok');
     loadDay(); loadHistory();
   } catch (e) { setSyncState('offline'); }
@@ -490,6 +583,8 @@ $('btnLogout').addEventListener('click', doLogout);
 $('btnPrevDay').addEventListener('click', () => shiftDay(-1));
 $('btnNextDay').addEventListener('click', () => shiftDay(1));
 $('btnToday').addEventListener('click', () => setViewDate(todayStr()));
+$('btnCloseNote').addEventListener('click', closeNote);
+$('btnReopenNote').addEventListener('click', reopenNote);
 $('viewDate').addEventListener('change', e => { if (e.target.value) setViewDate(e.target.value); });
 $('payCash').addEventListener('click', () => setPay('cash'));
 $('payQris').addEventListener('click', () => setPay('qris'));

@@ -32,6 +32,8 @@
   @media(max-width:600px){.form-2col{grid-template-columns:1fr}}
   .day-row{cursor:pointer}
   .day-row:hover{background:#f6f8fb}
+  .closed-banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fff8e1;border:1.5px solid #f0d48a;border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:10px}
+  .closed-banner b{color:#8a6d1b}
 </style>
 </head>
 <body>
@@ -71,6 +73,7 @@
         <input id="viewDate" type="date">
         <button id="btnNextDay" class="btn small">Next ›</button>
         <button id="btnToday" class="btn small primary">Today</button>
+        <button id="btnCloseNote" class="btn small">🔒 Close note</button>
         <span id="dayHint" class="muted"></span>
       </div>
     </div>
@@ -90,13 +93,14 @@
         <div class="card">
           <h2 id="entriesTitle">Today's sales</h2>
           <p class="muted" style="margin:4px 0 10px">Newest at the bottom · auto-saved per day</p>
+          <div id="closedBanner" class="closed-banner hidden">🔒 <b>Note closed</b><span>· total <b id="closedTotal">–</b></span><button id="btnReopenNote" class="btn small">Reopen</button></div>
           <div id="entries"></div>
           <div id="entriesEmpty" class="empty hidden">No sales yet for this day.<br><small>Add your first sale on the right →</small></div>
         </div>
       </div>
 
       <aside class="cart-panel">
-        <div class="card add-card">
+        <div class="card add-card" id="addCard">
           <h2 id="formTitle">+ Add sale</h2>
           <input type="hidden" id="editId">
           <label for="fItem">Item name *</label>

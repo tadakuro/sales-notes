@@ -15,6 +15,9 @@ No cashier system, no barcode, no stock. Just your own sales notes. Web app only
 2. Fill **Item, Qty, Price, Cash/QRIS, Date** → Save. Subtotal = qty × price.
 3. Top banner shows **total earnings + cash/qris split** for that day.
 4. Tomorrow = new empty note automatically. Old days stay in **History**.
+5. **🔒 Close note** when the day is done: locks it on all devices and snapshots
+   (accumulates) the final total. Closed days show a lock banner, hide the form,
+   and get a 🔒 badge in History with locked totals per month. **Reopen** to edit again.
 
 ## Multiple devices — auto sync
 Sales sync automatically through Cloudflare Workers + D1 (free tier):
