@@ -2,13 +2,13 @@
 
 No cashier system, no barcode, no stock. Just your own sales notes. Web app only.
 
-**Live site:** https://tadakuro.github.io/sales-notes/
+**Live site:** https://tadakuro.github.io/sales-notes/ 🔒 key-locked
 
-- **one access KEY** locks your notes on each device (no username)
+- **one site key** opens the gate on every device (stored as the `SITE_KEY` GitHub secret — only its hash is baked into the site, never the key itself)
 - each day auto-starts a **fresh note** — entries auto-save with daily total
 - entry fields: **item name, quantity, price, date, payment (Cash / QRIS)**, optional note
 - totals: day total + Cash vs QRIS breakdown, monthly history, export/import JSON
-- **no server, no install** — runs 100% in the browser, data stays in the device's localStorage
+- **no server, no install** — runs 100% in the browser, data stays in each device's localStorage
 
 ## Daily flow
 1. **Day note** tab opens on today. Change date with ‹ Prev / Next or the picker.
@@ -19,8 +19,14 @@ No cashier system, no barcode, no stock. Just your own sales notes. Web app only
 ## Multiple devices
 Each device keeps its own notes. To move sales: **Settings → Export (JSON)** on device A → **Import** on device B.
 
+## Site key (repo owner)
+- Set it: `gh secret set SITE_KEY -R tadakuro/sales-notes` (prompts privately), or repo → Settings → Secrets → Actions → New secret `SITE_KEY`.
+- Change/rotate it the same way — the `Deploy to Pages` workflow rebuilds the site automatically (~1 min).
+- The workflow hashes `sn::<key>` with SHA-256 and injects only the hash into `site/app.js`. The raw key never lands in git.
+- Honest limits: this is a static site, so the gate is a *casual* lock — all code ships to the browser, and anyone technical can bypass client-side checks. Use a long passphrase. Real access control would need a server in front.
+
 ## Deploy (GitHub Pages)
-The live site is served from the `docs/` folder via Pages (`main` branch → `/docs`).
+Pages source = **GitHub Actions** (workflow `.github/workflows/deploy-pages.yml` builds `site/` → deploys).
 Just push to `main` — the site updates automatically in ~1 minute.
 
 ## Optional: local Python backend
@@ -29,5 +35,6 @@ Just push to `main` — the site updates automatically in ~1 minute.
 github.io site does not use it.
 
 ## Files
-- `docs/index.html`, `docs/app.js`, `docs/style.css` — the live Pages site
+- `site/index.html`, `site/app.js`, `site/style.css` — the live Pages site source
+- `.github/workflows/deploy-pages.yml` — injects key hash + deploys
 - `app.py`, `static/` — optional local backend version

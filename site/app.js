@@ -1,4 +1,11 @@
 /* My Sales Notes — GitHub Pages version (no backend, localStorage only) */
+/* Site key gate: __SITE_KEY_HASH__ is replaced at deploy time with the
+   SHA-256 of "sn::" + the SITE_KEY GitHub secret (see .github/workflows/deploy-pages.yml).
+   Raw key never appears in the repo. When enforced, the same site key opens
+   the gate on every device (notes themselves stay per-device in localStorage). */
+const SITE_KEY_HASH = "__SITE_KEY_HASH__";
+const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.startsWith('__');
+
 let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
 let viewDate = new Date().toISOString().slice(0, 10);
 let payMethod = 'cash';
@@ -51,7 +58,7 @@ document.querySelectorAll('nav.tabs .tab[data-tab]').forEach(b => b.addEventList
   if (b.dataset.tab === 'history') loadHistory();
 }));
 
-// ---------- key gate (device-local) ----------
+// ---------- key gate ----------
 function authErr(m) {
   const e = $('authErr');
   if (!m) { e.classList.add('hidden'); e.textContent = ''; return; }
@@ -65,6 +72,16 @@ function checkGate() {
   $('shopTitle').textContent = saved.shop_name;
   $('authShopName').textContent = saved.shop_name;
   document.title = saved.shop_name + ' — Sales Notes';
+  if (SITE_ENFORCED) {
+    // one site-wide key (from GitHub secret) — no per-device setup
+    $('authSetupPane').classList.add('hidden');
+    $('authLoginPane').classList.remove('hidden');
+    $('authHint').textContent = 'This notebook is locked — enter the site key.';
+    if (sessionStorage.getItem('sn_unlocked') === '1') { hideAuth(); afterLogin(); return; }
+    setTimeout(() => $('loginKey').focus(), 60);
+    showAuth();
+    return;
+  }
   if (!localStorage.getItem(LS_P)) {
     $('authSetupPane').classList.remove('hidden');
     $('authLoginPane').classList.add('hidden');
@@ -82,6 +99,7 @@ function checkGate() {
   showAuth();
 }
 async function doSetup() {
+  if (SITE_ENFORCED) { authErr('Site key is managed in the repo settings.'); return; }
   const a = $('setupKey').value.trim(), b = $('setupKey2').value.trim();
   if (a.length < 4) { authErr('Key min. 4 chars.'); return; }
   if (a !== b) { authErr('Keys do not match.'); return; }
@@ -94,7 +112,8 @@ async function doSetup() {
 async function doLogin() {
   const k = $('loginKey').value;
   if (!k) { authErr('Enter your key.'); return; }
-  if ((await hashPin(k)) !== localStorage.getItem(LS_P)) { authErr('Wrong key — try again.'); return; }
+  const want = SITE_ENFORCED ? SITE_KEY_HASH : localStorage.getItem(LS_P);
+  if ((await hashPin(k)) !== want) { authErr('Wrong key — try again.'); return; }
   $('loginKey').value = '';
   sessionStorage.setItem('sn_unlocked', '1');
   hideAuth(); afterLogin();
@@ -135,12 +154,23 @@ function saveSettings() {
   toast('Saved ✓', 'ok');
 }
 async function changeKey() {
+  if (SITE_ENFORCED) { toast('Site key is managed in the GitHub repo secret.', 'err'); return; }
   const o = $('kOld').value, n = $('kNew').value.trim();
   if (!o || n.length < 4) { toast('Old key + new key (min 4) required', 'err'); return; }
   if ((await hashPin(o)) !== localStorage.getItem(LS_P)) { toast('Wrong old key', 'err'); return; }
   localStorage.setItem(LS_P, await hashPin(n));
   $('kOld').value = ''; $('kNew').value = '';
   toast('Key changed ✓', 'ok');
+}
+function applyKeyModeUI() {
+  // hide per-device key controls when the site-wide secret key is enforced
+  ['kOld', 'kNew', 'btnChangeKey'].forEach(id => {
+    const wrap = $(id).closest('label') || $(id);
+    if (SITE_ENFORCED) (id === 'btnChangeKey' ? $(id) : wrap).classList.add('hidden');
+  });
+  if (SITE_ENFORCED) {
+    $('keyModeHint').textContent = 'One site-wide key (set in the GitHub repo secret SITE_KEY) opens the gate on every device. Change it there — the site redeploys automatically.';
+  }
 }
 
 // ---------- day note ----------
@@ -373,6 +403,7 @@ $('btnImport').addEventListener('click', importDB);
   $('fDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   setPay('cash'); updSub();
+  applyKeyModeUI();
   checkGate();
-  if (sessionStorage.getItem('sn_unlocked') === '1' && localStorage.getItem(LS_P)) { loadDay(); loadHistory(); }
+  if (sessionStorage.getItem('sn_unlocked') === '1' && (SITE_ENFORCED || localStorage.getItem(LS_P))) { loadDay(); loadHistory(); }
 })();
