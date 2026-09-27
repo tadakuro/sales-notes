@@ -7,7 +7,9 @@ const SITE_KEY_HASH = "__SITE_KEY_HASH__";
 const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.startsWith('__');
 
 let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
-let viewDate = new Date().toISOString().slice(0, 10);
+const localDay = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const todayStr = () => localDay(new Date());
+let viewDate = todayStr();
 let payMethod = 'cash';
 let editingId = null;
 const $ = id => document.getElementById(id);
@@ -15,7 +17,6 @@ const isIDR = () => ['rp', 'rp.', 'idr', 'rupiah'].includes(String(settings.curr
 const money = n => isIDR() ? 'Rp ' + Number(n || 0).toLocaleString('id-ID', { maximumFractionDigits: 0 })
   : (settings.currency || 'Rp') + ' ' + Number(n || 0).toFixed(2);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const todayStr = () => new Date().toISOString().slice(0, 10);
 
 /* ---------- storage ---------- */
 const LS_E = 'sn_entries', LS_S = 'sn_settings', LS_P = 'sn_pin';
@@ -195,9 +196,8 @@ function loadStats() {
   $('stMonth').textContent = money(mo.total);
 }
 function shiftDay(n) {
-  const d = new Date(viewDate + 'T12:00:00');
-  d.setDate(d.getDate() + n);
-  setViewDate(d.toISOString().slice(0, 10));
+  const [y, m, dd] = viewDate.split('-').map(Number);
+  setViewDate(localDay(new Date(y, m - 1, dd + n)));
 }
 function setViewDate(d) {
   viewDate = d;
