@@ -1,3 +1,1 @@
 # runtime: stdlib only, no install needed (keep this file so Render detects Python)
-# build only (installed directly in .github/workflows/build-exe.yml, NOT here):
-# pyinstaller>=6.0

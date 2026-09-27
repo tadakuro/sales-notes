@@ -1,19 +1,19 @@
 # My Sales Notes — personal daily sales notebook
 
-No cashier system, no barcode, no stock. Just your own sales notes.
+No cashier system, no barcode, no stock. Just your own sales notes. Web app only.
 
 - runs on **Android (Termux), Windows, Linux** with no install (`python3 app.py`)
+- deployable to **Render** free tier (`render.yaml` included, reads `$PORT`)
 - **one access KEY** unlocks it from any device (no username)
 - each day auto-starts a **fresh note** — entries auto-save with daily total
 - entry fields: **item name, quantity, price, date, payment (Cash / QRIS)**, optional note
 - totals: day total + Cash vs QRIS breakdown, monthly history, export/import JSON
-- **SQLite** (`pos.db`), stdlib only
+- **SQLite** (`pos.db`), stdlib only — no pip install needed
 
-## 1. Run on Android (Termux)
+## 1. Run locally
 ```bash
-cd cashier-pos
 python3 app.py --no-browser
-# then open http://localhost:8000 in Chrome
+# then open http://localhost:8000 in your browser
 ```
 
 ## 2. First open
@@ -26,13 +26,13 @@ python3 app.py --no-browser
 3. Top banner shows **total earnings + cash/qris split** for that day.
 4. Tomorrow = new empty note automatically. Old days stay in **History**.
 
-## 4. Build .exe (Windows, via GitHub Actions)
-Same as before: Actions → Build Windows EXE → download artifact.
-Data saves to `pos.db` beside the exe.
-
-Old cashier DB (if any) was archived to `pos.db.bak-*`.
+## 4. Deploy to Render (free)
+1. Push this repo to GitHub.
+2. Render → **New → Web Service** → select the repo (auto-detects `render.yaml`).
+3. Open the `https://….onrender.com` URL, create your key, done.
+4. Note: free tier sleeps when idle + SQLite is ephemeral — use **Settings → Export JSON** regularly as backup.
 
 ## Files
 - `app.py` — backend + database (stdlib only)
 - `static/index.html`, `app.js`, `style.css` — frontend
-- `.github/workflows/build-exe.yml` — builds the .exe
+- `render.yaml` — Render deploy config
