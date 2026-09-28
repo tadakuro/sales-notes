@@ -592,7 +592,8 @@ function loadHistory() {
     tr.className = 'day-row';
     tr.innerHTML = `<td><b>${allLocked ? '🔒 ' : ''}${esc(d.date)}</b><br><small class="muted">${dns.length} note${dns.length === 1 ? '' : 's'}</small></td><td>${d.count}</td><td class="muted">${esc(money(d.cash_total))}</td><td class="muted">${esc(money(d.qris_total))}</td><td><b>${esc(money(d.total))}</b></td>`;
     tr.addEventListener('click', () => {
-      setViewDateSilent(d.date);
+      // one note that day -> open it directly; otherwise show the day's list
+      gotoDay(d.date, dns.length === 1 ? dns[0].id : null);
       document.querySelectorAll('nav.tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.tab === 'note'));
       document.querySelectorAll('.tabpage').forEach(s => s.classList.add('hidden'));
       $('tab-note').classList.remove('hidden');
@@ -600,14 +601,16 @@ function loadHistory() {
     tb.appendChild(tr);
   });
 }
-function setViewDateSilent(d) {
-  viewDate = d;
-  openNoteId = null;
-  sessionStorage.removeItem('sn_note');
+function gotoDay(date, noteId) {
+  viewDate = date;
+  openNoteId = noteId || null;
+  if (noteId) sessionStorage.setItem('sn_note', noteId);
+  else sessionStorage.removeItem('sn_note');
   cancelEdit();
-  $('viewDate').value = d;
+  $('viewDate').value = date;
   renderDay();
 }
+function setViewDateSilent(d) { gotoDay(d, null); }
 
 // ---------- backup ----------
 function exportDB() {
