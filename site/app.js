@@ -762,7 +762,11 @@ async function syncNow() {
       loadEntries().forEach(e => { map[e.id] = e; });
       remote.forEach(re => {
         const cur = map[re.id];
-        if (!cur || (re.updated_at || '') > (cur.updated_at || '')) map[re.id] = re;
+        if (!cur) { map[re.id] = re; }
+        else if ((re.updated_at || '') > (cur.updated_at || '')) {
+          // old backend rows carry no note_id — never let one orphan a good local entry
+          map[re.id] = (cur.note_id && !re.note_id) ? cur : re;
+        }
         bump(re.updated_at);
       });
       saveEntries(Object.values(map));
@@ -836,6 +840,7 @@ $('btnImport').addEventListener('click', importDB);
 // ---------- init ----------
 (function init() {
   loadSettings();
+  migrate(); // heal orphans on every load, not just after login
   viewDate = todayStr();
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
