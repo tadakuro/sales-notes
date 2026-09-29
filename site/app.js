@@ -572,12 +572,32 @@ async function importDB() {
 
 /* ---------- cloud sync (offline-first, +products) ---------- */
 let syncing = false, syncTimer = null;
+const LS_OK = 'sn_last_ok';
+function pendingCount() {
+  try {
+    return (JSON.parse(localStorage.getItem(LS_D) || '[]').length)
+      + (JSON.parse(localStorage.getItem(LS_DN) || '[]').length)
+      + (JSON.parse(localStorage.getItem(LS_DS) || '[]').length)
+      + (JSON.parse(localStorage.getItem(LS_DP) || '[]').length);
+  } catch (e) { return 0; }
+}
+function lastOkLabel() {
+  const t = localStorage.getItem(LS_OK);
+  if (!t) return 'belum pernah';
+  try {
+    const d = new Date(t);
+    return d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return t; }
+}
 function setSyncState(s) {
   const el = $('syncDot');
   if (!el) return;
   const map = { ok: ['✓ synced', '#34d399'], sync: ['… syncing', '#fbbf24'], offline: ['✕ offline', '#f87171'], off: ['– sync off', '#8b96b3'], key: ['! kunci salah', '#f87171'] };
   const [t, c] = map[s] || map.off;
   el.textContent = t; el.style.color = c;
+  el.title = s === 'ok' ? ('terakhir sinkron ' + lastOkLabel())
+    : s === 'offline' ? ('offline — tersimpan di HP ini, terkirim nanti · ' + pendingCount() + ' menunggu · terakhir ok ' + lastOkLabel())
+    : t;
 }
 async function syncNow() {
   if (!SYNC_ON) { setSyncState('off'); return; }
@@ -645,8 +665,13 @@ async function syncNow() {
     localStorage.setItem(LS_LP, ((remote && remote.length) || (remoteNotes && remoteNotes.length) || (remoteStates && remoteStates.length) || (remoteProds && remoteProds.length)) ? newest : nowIso());
     try { seedProductsFromEntries(); } catch (e) {}
     renderAll();
+    localStorage.setItem(LS_OK, nowIso());
     setSyncState('ok');
-  } catch (e) { setSyncState('offline'); }
+  } catch (e) {
+    setSyncState('offline');
+    // transient mobile drop? retry once in 10s instead of waiting for the 30s timer
+    clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 10000);
+  }
   syncing = false;
 }
 function syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 1500); }
