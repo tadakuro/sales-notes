@@ -225,7 +225,8 @@ function setPay(p) {
 }
 
 /* ---------- SELL ---------- */
-function renderAll() { renderSell(); renderProducts(); renderStats(); loadHistory(); loadHeader(); }
+function safe(fn) { try { fn(); } catch (e) { try { console.warn(e); } catch (_) {} } }
+function renderAll() { safe(renderSell); safe(renderProducts); safe(renderStats); safe(loadHistory); safe(loadHeader); }
 function loadHeader() {
   const t = summarize(dayEntries(todayStr()));
   $('stToday').textContent = money(t.total);
@@ -452,13 +453,23 @@ function drawBars(cv, vals, labels) {
     const g = ctx.createLinearGradient(0, y, 0, y + h);
     g.addColorStop(0, '#34d399'); g.addColorStop(1, '#0ea5e9');
     ctx.fillStyle = i === n - 1 ? g : '#24314f';
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill();
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill(); }
+    else ctx.fillRect(x, y, w, h);
     ctx.fillStyle = '#8b96b3'; ctx.font = '10px Inter,system-ui'; ctx.textAlign = 'center';
     ctx.fillText(labels[i], x + w / 2, H - 8);
   });
 }
 
 /* ---------- history ---------- */
+function openDay(date) {
+  viewDate = date;
+  $('viewDate').value = date;
+  safe(renderSell);
+  const t = document.querySelector('.bottomnav .tab[data-tab="sell"]');
+  if (t) t.click();
+  else { document.querySelectorAll('.tabpage').forEach(s => s.classList.add('hidden')); $('tab-sell').classList.remove('hidden'); }
+  window.scrollTo({ top: 0 });
+}
 function loadHistory() {
   if (!$('histMonth')) return;
   const m = $('histMonth').value || todayStr().slice(0, 7);
@@ -475,11 +486,8 @@ function loadHistory() {
   days.forEach(d => {
     const tr = document.createElement('tr');
     tr.className = 'day-row';
-    tr.innerHTML = `<td><b>${esc(d.date)}</b></td><td>${d.count}</td><td><b>${esc(money(d.total))}</b></td>`;
-    tr.addEventListener('click', () => {
-      viewDate = d.date; $('viewDate').value = d.date; renderSell();
-      document.querySelector('.bottomnav .tab[data-tab=sell]').click();
-    });
+    tr.innerHTML = `<td><b>${esc(d.date)}</b></td><td>${d.count}</td><td><b>${esc(money(d.total))}</b> <span class="link">›</span></td>`;
+    tr.addEventListener('click', () => openDay(d.date));
     tb.appendChild(tr);
   });
 }
