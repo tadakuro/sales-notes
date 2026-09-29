@@ -48,27 +48,21 @@
       <div id="quickEmpty" class="empty hidden">Belum ada produk cepat.<br><small>Tambah di tab 📦 Produk.</small></div>
     </div>
 
-    <div class="card cart-card">
-      <div class="cart-head"><h2>🛒 Keranjang</h2><button id="btnClearCart" class="link">hapus</button></div>
-      <div id="cartItems"></div>
-      <div id="cartEmpty" class="cart-empty">Ketuk produk di atas untuk mulai jualan 👆</div>
-      <div class="pay-seg">
-        <button id="payCash" class="active-cash">💵 Cash</button>
-        <button id="payQris">📱 QRIS</button>
-      </div>
-      <div class="trow grand"><span>Total</span><b id="cartTotal">Rp 0</b></div>
-      <button id="btnCheckout" class="btn primary big">✅ Bayar &amp; Simpan</button>
-    </div>
-
     <div class="card">
-      <h2>+ Item manual</h2>
-      <p class="muted small">Untuk barang yang tidak ada di produk cepat</p>
+      <h2>+ Tambah penjualan</h2>
+      <p class="muted small">Ketuk produk cepat di atas untuk mengisi otomatis, atau isi manual</p>
       <label class="lbl">Nama barang *<input id="fItem" placeholder="mis. Kopi susu" autocomplete="off"></label>
       <div class="form-2col">
         <label class="lbl">Qty *<input id="fQty" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
         <label class="lbl">Harga *<input id="fPrice" type="number" min="0" step="any" placeholder="0" inputmode="decimal"></label>
       </div>
-      <button id="btnAddCustom" class="btn big">＋ Masuk keranjang</button>
+      <label class="lbl">Pembayaran *</label>
+      <div class="pay-seg">
+        <button id="payCash" class="active-cash">💵 Cash</button>
+        <button id="payQris">📱 QRIS</button>
+      </div>
+      <div class="trow grand"><span>Subtotal</span><b id="fSub">Rp 0</b></div>
+      <button id="btnSave" class="btn primary big">💾 Simpan penjualan</button>
     </div>
 
     <div class="card">

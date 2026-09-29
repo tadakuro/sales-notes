@@ -1,7 +1,7 @@
 /* My Sales Notes — POS revamp (dark, mobile-first, offline-first).
  * Static site, localStorage first, optional Cloudflare Worker + D1 sync.
  * Data model (synced): entries + notes + note_state (legacy compat) + products.
- * UI: Sell cart -> one default note per date, so old multi-note data keeps syncing.
+ * UI: single direct-save form; day sales grouped per note with lock buttons.
  */
 const SITE_KEY_HASH = "__SITE_KEY_HASH__";
 const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.startsWith('__');
@@ -12,7 +12,6 @@ let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
 let sessionKey = sessionStorage.getItem('sn_key') || null;
 let viewDate = null;
 let payMethod = 'cash';
-let cart = []; // {pid, name, price, qty}
 let editPid = null;
 
 const $ = id => document.getElementById(id);
@@ -105,15 +104,46 @@ function seedProductsFromEntries() {
   } catch (e) {}
 }
 
-/* one default note per date keeps the POS simple while old notes keep syncing */
-function defaultNote(date) {
-  let notes = loadNotes();
-  let n = notes.filter(x => !x.deleted && x.date === date).sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
-  if (n) return n;
+/* writable note for new sales: first open note of the date,
+ * or a fresh one if all are locked (old notes keep syncing) */
+function writableNote(date) {
+  const day = loadNotes().filter(x => !x.deleted && x.date === date)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  const open = day.find(x => !isClosed(x.id));
+  if (open) return open;
   const now = nowIso();
-  n = { id: uid(), date, title: 'Kasir', created_at: now, updated_at: now, deleted: 0 };
-  notes.push(n); saveNotes(notes); markDirtyNote(n.id);
+  const title = day.length ? ('Kasir ' + (day.length + 1)) : 'Kasir';
+  const n = { id: uid(), date, title, created_at: now, updated_at: now, deleted: 0 };
+  const all = loadNotes(); all.push(n); saveNotes(all); markDirtyNote(n.id);
   return n;
+}
+function isClosed(id) { const st = loadStates()[id]; return !!(st && st.closed === 1); }
+function closeNote(id) {
+  const n = loadNotes().find(x => x.id === id && !x.deleted);
+  if (!n) return;
+  if (isClosed(id)) { toast('Sudah dikunci', 'info'); return; }
+  const list = loadEntries().filter(e => !e.deleted && e.note_id === id);
+  if (!list.length) { toast('Belum ada penjualan di catatan ini', 'err'); return; }
+  const s = summarize(list);
+  if (!confirm(`Kunci "${n.title}" (${n.date})?\nTotal ${money(s.total)} · ${s.count} penjualan.`)) return;
+  const now = nowIso();
+  const states = loadStates();
+  states[id] = { date: n.date, closed: 1, total: s.total, cash_total: s.cash_total,
+    qris_total: s.qris_total, count: s.count, closed_at: now, updated_at: now };
+  localStorage.setItem(LS_ST, JSON.stringify(states));
+  markDirtyState(id);
+  renderSell(); renderStats(); syncSoon();
+  toast('Catatan dikunci 🔒 ' + money(s.total), 'ok');
+}
+function reopenNote(id) {
+  const states = loadStates();
+  if (!states[id]) return;
+  if (!confirm('Buka lagi catatan ini?')) return;
+  states[id] = { ...states[id], closed: 0, updated_at: nowIso() };
+  localStorage.setItem(LS_ST, JSON.stringify(states));
+  markDirtyState(id);
+  renderSell(); renderStats(); syncSoon();
+  toast('Catatan dibuka lagi', 'ok');
 }
 
 function toast(msg, type = 'info', ms = 2400) {
@@ -193,7 +223,7 @@ async function doLogin() {
 }
 function doLogout() {
   sessionStorage.removeItem('sn_unlocked'); sessionStorage.removeItem('sn_key');
-  sessionKey = null; cart = [];
+  sessionKey = null;
   showAuth(); checkGate();
 }
 function afterLogin() {
@@ -263,7 +293,7 @@ function renderSell() {
   $('cashTotal').textContent = money(s.cash_total); $('cashCount').textContent = s.cash_count;
   $('qrisTotal').textContent = money(s.qris_total); $('qrisCount').textContent = s.qris_count;
   $('dayCount').textContent = s.count;
-  renderQuick(); renderCart(); renderDayList(list); loadHeader();
+  renderQuick(); renderDayList(list); loadHeader();
 }
 function renderQuick() {
   const q = ($('prodSearch').value || '').toLowerCase();
@@ -275,63 +305,44 @@ function renderQuick() {
     const b = document.createElement('button');
     b.className = 'qcard';
     b.innerHTML = `<b>${esc(p.name)}</b><span>${esc(money(p.price))}</span>`;
-    b.addEventListener('click', () => addToCart({ pid: p.id, name: p.name, price: p.price }));
+    b.addEventListener('click', () => fillForm(p.name, p.price));
     box.appendChild(b);
   });
 }
-function addToCart(item) {
-  const f = cart.find(c => (item.pid && c.pid === item.pid) || (!item.pid && c.name === item.name && c.price === item.price));
-  if (f) f.qty += (item.qty || 1);
-  else cart.push({ pid: item.pid || null, name: item.name, price: item.price, qty: item.qty || 1 });
-  renderCart();
+/* single direct-save form (merged cart + manual input) */
+function fillForm(name, price) {
+  $('fItem').value = name;
+  $('fPrice').value = price;
+  if (!Number($('fQty').value)) $('fQty').value = 1;
+  updSub();
+  $('fQty').focus();
+  toast(name + ' → form', 'ok', 1200);
 }
-function renderCart() {
-  const box = $('cartItems'); box.innerHTML = '';
-  $('cartEmpty').classList.toggle('hidden', cart.length > 0);
-  let total = 0;
-  cart.forEach((c, i) => {
-    total += c.qty * c.price;
-    const d = document.createElement('div');
-    d.className = 'citem';
-    d.innerHTML = `<div class="cname">${esc(c.name)}</div><div class="csub">${esc(money(c.qty * c.price))}</div>
-      <div class="qtyctl"><button data-a="-">−</button><span class="q">${c.qty} × ${esc(money(c.price))}</span><button data-a="+">+</button><button class="rm" data-a="x">hapus</button></div>`;
-    const [bm, bp, rm] = d.querySelectorAll('button');
-    bm.addEventListener('click', () => { c.qty--; if (c.qty <= 0) cart.splice(i, 1); renderCart(); });
-    bp.addEventListener('click', () => { c.qty++; renderCart(); });
-    rm.addEventListener('click', () => { cart.splice(i, 1); renderCart(); });
-    box.appendChild(d);
-  });
-  $('cartTotal').textContent = money(total);
-  $('btnCheckout').disabled = !cart.length;
+function updSub() {
+  const q = Number($('fQty').value || 0), pr = Number($('fPrice').value || 0);
+  $('fSub').textContent = money(q * pr);
 }
-function addCustom() {
-  const name = $('fItem').value.trim();
+function saveManual() {
+  const item = $('fItem').value.trim();
   const qty = Math.floor(Number($('fQty').value || 0));
   const price = Number($('fPrice').value);
-  if (!name) { toast('Nama barang wajib', 'err'); return; }
-  if (!(qty > 0)) { toast('Qty harus > 0', 'err'); return; }
-  if (!isFinite(price) || price < 0) { toast('Harga wajib (0 boleh)', 'err'); return; }
-  addToCart({ name, price, qty });
-  $('fItem').value = ''; $('fQty').value = 1; $('fPrice').value = '';
-  toast(name + ' → keranjang', 'ok', 1200);
-}
-function checkout() {
-  if (!cart.length) return;
-  const note = defaultNote(viewDate);
-  const all = loadEntries();
+  if (!item) { toast('Nama barang wajib', 'err'); $('fItem').focus(); return; }
+  if (!(qty > 0)) { toast('Qty harus > 0', 'err'); $('fQty').focus(); return; }
+  if (!isFinite(price) || price < 0) { toast('Harga wajib (0 boleh)', 'err'); $('fPrice').focus(); return; }
+  const note = writableNote(viewDate);
   const now = nowIso();
-  cart.forEach(c => {
-    const id = uid();
-    const sub = Math.round(c.qty * c.price * 100) / 100;
-    all.push({ id, note_id: note.id, date: viewDate, item: c.name, qty: c.qty, price: c.price, subtotal: sub, payment: payMethod, note: '', created_at: now, updated_at: now, deleted: 0 });
-    markDirty(id);
-  });
+  const sub = Math.round(qty * price * 100) / 100;
+  const id = uid();
+  const all = loadEntries();
+  all.push({ id, note_id: note.id, date: viewDate, item, qty, price, subtotal: sub, payment: payMethod, note: '', created_at: now, updated_at: now, deleted: 0 });
   saveEntries(all);
-  const n = cart.length;
-  cart = [];
+  markDirty(id);
+  $('fItem').value = ''; $('fQty').value = 1; $('fPrice').value = '';
+  updSub();
   renderSell(); renderStats();
-  toast(n + ' item tersimpan (' + payMethod.toUpperCase() + ') ✓', 'ok');
+  toast(item + ' tersimpan ✓ (' + payMethod.toUpperCase() + ')', 'ok', 1500);
   syncSoon();
+  setTimeout(() => $('fItem').focus(), 50);
 }
 function renderDayList(list) {
   const box = $('entries'); box.innerHTML = '';
@@ -348,9 +359,17 @@ function renderDayList(list) {
       const s = summarize(items);
       const sec = document.createElement('div');
       sec.className = 'note-sec';
+      const locked = nid && isClosed(nid);
       const head = document.createElement('div');
       head.className = 'note-sec-head';
-      head.innerHTML = `<b>📝 ${esc(n ? n.title : 'Catatan')}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
+      head.innerHTML = `<b>${locked ? '🔒' : '📝'} ${esc(n ? n.title : 'Catatan')}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
+      if (nid && n) {
+        const lb = document.createElement('button');
+        lb.className = 'btn small ghost';
+        lb.textContent = locked ? 'Buka' : '🔒 Kunci';
+        lb.addEventListener('click', () => { locked ? reopenNote(nid) : closeNote(nid); });
+        head.appendChild(lb);
+      }
       sec.appendChild(head);
       items.forEach(e => {
         const d = document.createElement('div');
@@ -358,8 +377,8 @@ function renderDayList(list) {
         d.innerHTML = `<div><div class="ename">${esc(e.item)}</div>
           <div class="emeta">${e.qty} × ${esc(money(e.price))} · <span class="paybadge ${e.payment}">${e.payment === 'qris' ? 'QRIS' : 'Cash'}</span></div></div>
           <div class="esub">${esc(money(e.subtotal))}</div>
-          <div class="eactions"><button class="btn small ghost">Hapus</button></div>`;
-        d.querySelector('button').addEventListener('click', () => delEntry(e.id));
+          ${locked ? '' : '<div class="eactions"><button class="btn small ghost">Hapus</button></div>'}`;
+        if (!locked) d.querySelector('button').addEventListener('click', () => delEntry(e.id));
         sec.appendChild(d);
       });
       box.appendChild(sec);
@@ -370,6 +389,7 @@ function delEntry(id) {
   const all = loadEntries();
   const i = all.findIndex(e => e.id === id);
   if (i < 0) return;
+  if (all[i].note_id && isClosed(all[i].note_id)) { toast('Catatan dikunci 🔒 — buka dulu untuk menghapus', 'err'); return; }
   all[i] = { ...all[i], deleted: 1, updated_at: nowIso() };
   saveEntries(all); markDirty(id);
   renderSell(); renderStats(); syncSoon(); toast('Dihapus', 'ok');
@@ -388,7 +408,7 @@ function renderProducts() {
       <div class="pact"><button class="btn small">＋</button><button class="btn small ghost">✏️</button><button class="btn small ghost">🗑</button></div>`;
     const [bAdd, bEdit, bDel] = d.querySelectorAll('button');
     bAdd.addEventListener('click', () => {
-      addToCart({ pid: p.id, name: p.name, price: p.price });
+      fillForm(p.name, p.price);
       document.querySelector('.bottomnav .tab[data-tab=sell]').click();
     });
     bEdit.addEventListener('click', () => {
@@ -689,9 +709,12 @@ $('viewDate').addEventListener('change', e => { if (e.target.value) { viewDate =
 $('prodSearch').addEventListener('input', renderQuick);
 $('payCash').addEventListener('click', () => setPay('cash'));
 $('payQris').addEventListener('click', () => setPay('qris'));
-$('btnAddCustom').addEventListener('click', addCustom);
-$('btnCheckout').addEventListener('click', checkout);
-$('btnClearCart').addEventListener('click', () => { cart = []; renderCart(); });
+$('btnSave').addEventListener('click', saveManual);
+$('fQty').addEventListener('input', updSub);
+$('fPrice').addEventListener('input', updSub);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && ['fItem', 'fQty', 'fPrice'].includes(document.activeElement.id)) { e.preventDefault(); saveManual(); }
+});
 $('btnSaveProduct').addEventListener('click', saveProduct);
 $('btnCancelProduct').addEventListener('click', cancelProductForm);
 $('statMonth').addEventListener('change', renderStats);
@@ -708,7 +731,7 @@ $('btnImport').addEventListener('click', importDB);
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
-  setPay('cash');
+  setPay('cash'); updSub();
   setSyncState(SYNC_ON ? 'offline' : 'off');
   if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
   refreshTitles();
