@@ -336,16 +336,34 @@ function checkout() {
 function renderDayList(list) {
   const box = $('entries'); box.innerHTML = '';
   $('entriesEmpty').classList.toggle('hidden', list.length > 0);
-  [...list].sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(-20).reverse().forEach(e => {
-    const d = document.createElement('div');
-    d.className = 'entry';
-    d.innerHTML = `<div><div class="ename">${esc(e.item)}</div>
-      <div class="emeta">${e.qty} × ${esc(money(e.price))} · <span class="paybadge ${e.payment}">${e.payment === 'qris' ? 'QRIS' : 'Cash'}</span></div></div>
-      <div class="esub">${esc(money(e.subtotal))}</div>
-      <div class="eactions"><button class="btn small ghost">Hapus</button></div>`;
-    d.querySelector('button').addEventListener('click', () => delEntry(e.id));
-    box.appendChild(d);
-  });
+  const byId = {};
+  loadNotes().forEach(n => { byId[n.id] = n; });
+  const groups = {};
+  list.forEach(e => { const k = e.note_id || ''; (groups[k] = groups[k] || []).push(e); });
+  Object.keys(groups)
+    .sort((a, b) => String(byId[a] ? byId[a].created_at : '').localeCompare(String(byId[b] ? byId[b].created_at : '')))
+    .forEach(nid => {
+      const n = byId[nid];
+      const items = groups[nid].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      const s = summarize(items);
+      const sec = document.createElement('div');
+      sec.className = 'note-sec';
+      const head = document.createElement('div');
+      head.className = 'note-sec-head';
+      head.innerHTML = `<b>📝 ${esc(n ? n.title : 'Catatan')}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
+      sec.appendChild(head);
+      items.forEach(e => {
+        const d = document.createElement('div');
+        d.className = 'entry';
+        d.innerHTML = `<div><div class="ename">${esc(e.item)}</div>
+          <div class="emeta">${e.qty} × ${esc(money(e.price))} · <span class="paybadge ${e.payment}">${e.payment === 'qris' ? 'QRIS' : 'Cash'}</span></div></div>
+          <div class="esub">${esc(money(e.subtotal))}</div>
+          <div class="eactions"><button class="btn small ghost">Hapus</button></div>`;
+        d.querySelector('button').addEventListener('click', () => delEntry(e.id));
+        sec.appendChild(d);
+      });
+      box.appendChild(sec);
+    });
 }
 function delEntry(id) {
   if (!confirm('Hapus penjualan ini?')) return;

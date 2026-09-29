@@ -90,6 +90,9 @@ input[type=date],input[type=month]{min-height:44px}
 .trow.grand{font-size:19px;margin:6px 0}.trow.grand b{color:var(--green)}
 
 /* entries */
+.note-sec{margin-bottom:12px}
+.note-sec-head{display:flex;justify-content:space-between;align-items:center;background:#0e1528;border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-bottom:8px;font-size:13.5px}
+.note-sec-head span{color:var(--muted);font-size:12px;font-weight:700}
 .entry{display:grid;grid-template-columns:1fr auto;gap:4px 10px;background:#0e1528;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .entry .ename{font-weight:700;font-size:14px}
 .entry .emeta{font-size:12px;color:var(--muted)}
