@@ -1,6 +1,6 @@
 -- Shared sales database (Cloudflare D1, SQLite).
 -- Fresh install: wrangler d1 execute sales-notes --file=worker/schema.sql
--- Existing DBs: run worker/migrate-02.sql instead (adds note_id + notes tables).
+-- Existing DBs: run worker/migrate-02.sql then worker/migrate-03.sql instead.
 CREATE TABLE IF NOT EXISTS entries (
     id TEXT PRIMARY KEY,
     note_id TEXT NOT NULL DEFAULT '',
@@ -42,3 +42,14 @@ CREATE TABLE IF NOT EXISTS note_state (
     closed_at TEXT DEFAULT '',
     updated_at TEXT NOT NULL
 );
+
+-- Quick products catalog (one-tap sell). Synced like entries.
+CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_products_updated ON products(updated_at);

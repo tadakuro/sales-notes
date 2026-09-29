@@ -34,6 +34,7 @@ function authed(req, env) {
 const COLS = 'id,note_id,date,item,qty,price,subtotal,payment,note,updated_at,deleted';
 const NOTE_COLS = 'id,date,title,created_at,updated_at,deleted';
 const STATE_COLS = 'id,date,closed,total,cash_total,qris_total,count,closed_at,updated_at';
+const PROD_COLS = 'id,name,price,created_at,updated_at,deleted';
 
 export default {
   async fetch(req, env) {
@@ -44,13 +45,13 @@ export default {
     if (!authed(req, env)) return json({ error: 'unauthorized' }, 401);
 
     try {
-      // Pull everything changed since a timestamp (tombstones + notes + lock states).
+      // Pull everything changed since a timestamp (tombstones + notes + lock states + products).
       if (req.method === 'GET' && url.pathname === '/api/pull') {
         const since = url.searchParams.get('since') || '1970-01-01T00:00:00';
         const { results } = await env.DB.prepare(
           `SELECT ${COLS} FROM entries WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 2000`
         ).bind(since).all();
-        let notes = [], states = [];
+        let notes = [], states = [], products = [];
         try {
           const q = await env.DB.prepare(
             `SELECT ${NOTE_COLS} FROM notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
@@ -63,7 +64,13 @@ export default {
           ).bind(since).all();
           states = s.results || [];
         } catch (e) { /* pre-states DBs — entries still sync */ }
-        return json({ entries: results || [], notes, states });
+        try {
+          const p = await env.DB.prepare(
+            `SELECT ${PROD_COLS} FROM products WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
+          ).bind(since).all();
+          products = p.results || [];
+        } catch (e) { /* pre-products DBs — entries still sync */ }
+        return json({ entries: results || [], notes, states, products });
       }
 
       // Push local changes. Newest updated_at wins per id, on both sides.
@@ -143,7 +150,33 @@ export default {
           if (sstmts.length) await env.DB.batch(sstmts);
           statesApplied = sstmts.length;
         } catch (e) { /* table missing on old DBs — entries already saved */ }
-        return json({ ok: true, applied: stmts.length, notesApplied, statesApplied });
+        // Products catalog. Newest updated_at wins per id.
+        let productsApplied = 0;
+        try {
+          const pchanges = Array.isArray(body.products) ? body.products.slice(0, 200) : [];
+          const pstmts = [];
+          for (const p of pchanges) {
+            if (!p || typeof p.id !== 'string') continue;
+            const name = String(p.name || '').slice(0, 100);
+            const price = Number(p.price);
+            if (!name || !(price >= 0)) continue;
+            pstmts.push(env.DB.prepare(
+              `INSERT INTO products (${PROD_COLS}) VALUES (?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name, price=excluded.price, created_at=excluded.created_at,
+                 updated_at=excluded.updated_at, deleted=excluded.deleted
+               WHERE excluded.updated_at > products.updated_at`
+            ).bind(
+              p.id, name, price,
+              String(p.created_at || new Date().toISOString()),
+              String(p.updated_at || new Date().toISOString()),
+              p.deleted ? 1 : 0
+            ));
+          }
+          if (pstmts.length) await env.DB.batch(pstmts);
+          productsApplied = pstmts.length;
+        } catch (e) { /* table missing on old DBs — entries already saved */ }
+        return json({ ok: true, applied: stmts.length, notesApplied, statesApplied, productsApplied });
       }
 
       return json({ error: 'not_found' }, 404);

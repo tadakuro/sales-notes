@@ -1,187 +1,146 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>My Sales Notes</title>
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>">
-<style>
-  .pay-seg{display:flex;gap:8px}
-  .pay-seg button{flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--line);background:#fff;font-weight:800;font-size:15px;cursor:pointer}
-  .pay-seg button.active-cash{background:#e3f5ea;border-color:var(--green);color:var(--green)}
-  .pay-seg button.active-qris{background:#e8f1fe;border-color:var(--brand);color:var(--brand)}
-  .day-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .day-nav input[type=date]{max-width:180px}
-  .total-hero{background:linear-gradient(160deg,#1a73e8,#0f5ac0);color:#fff;border-radius:14px;padding:16px;margin-bottom:12px}
-  .total-hero small{opacity:.85;text-transform:uppercase;letter-spacing:.05em;font-size:11.5px;font-weight:800}
-  .total-hero .big{font-size:30px;font-weight:800;margin:2px 0}
-  .total-hero .split{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
-  .total-hero .pill{background:#ffffff26;border:1px solid #ffffff40;border-radius:10px;padding:6px 12px;font-size:13.5px;font-weight:700}
-  .entry{display:grid;grid-template-columns:1fr auto;gap:4px 10px;background:#f7f9fc;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
-  .entry .ename{font-weight:700}
-  .entry .emeta{font-size:12.5px;color:var(--muted)}
-  .entry .esub{font-weight:800;text-align:right;font-size:16px}
-  .entry .eactions{grid-column:1/-1;display:flex;gap:6px;align-items:center}
-  .paybadge{font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:999px}
-  .paybadge.cash{background:var(--green-bg);color:var(--green)}
-  .paybadge.qris{background:#e8f1fe;color:var(--brand)}
-  .add-card label{display:block;font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 6px}
-  .add-card input,.add-card select{margin:0}
-  .form-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  @media(max-width:600px){.form-2col{grid-template-columns:1fr}}
-  .day-row{cursor:pointer}
-  .day-row:hover{background:#f6f8fb}
-  .closed-banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fff8e1;border:1.5px solid #f0d48a;border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:10px}
-  .closed-banner b{color:#8a6d1b}
-  .notecard{cursor:pointer}
-  .notecard:hover{border-color:var(--brand)}
-</style>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
+<meta name="theme-color" content="#0b0f1a">
 </head>
 <body>
 
-<header class="app-header">
-  <div class="header-inner">
+<header class="topbar">
+  <div class="topbar-inner">
     <div class="brand">
-      <div class="brand-logo">📝</div>
+      <div class="brand-logo">🧾</div>
       <div class="brand-text">
         <h1 id="shopTitle">My Sales Notes</h1>
-        <p><span id="clock">--:--</span> · <span id="todayLabel"></span></p>
+        <p><span id="clock">--:--</span> · <span id="todayLabel"></span> · <span id="syncDot" title="sync status">–</span></p>
       </div>
     </div>
-
-    <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="note" role="tab">📝 <span>Day note</span></button>
-      <button class="tab" data-tab="history" role="tab">📅 <span>History</span></button>
-      <button class="tab" data-tab="settings" role="tab">⚙️ <span>Settings</span></button>
-    </nav>
-
-    <div class="header-stats">
-      <div class="hstat"><small>Today</small><b id="stToday">–</b></div>
-      <div class="hstat"><small>This month</small><b id="stMonth">–</b></div>
-      <div class="hstat"><small>Sync</small><b id="syncDot" title="sync status">–</b></div>
-      <button id="btnLogout" class="tab" title="Lock with key">🔒</button>
-    </div>
+    <div class="top-today"><small>Hari ini</small><b id="stToday">–</b></div>
   </div>
 </header>
 
 <main class="main">
-
-  <!-- ================= DAY ================= -->
-  <section id="tab-note" class="tabpage">
-    <div class="card">
-      <div class="day-nav">
-        <button id="btnPrevDay" class="btn small">‹ Prev</button>
-        <input id="viewDate" type="date">
-        <button id="btnNextDay" class="btn small">Next ›</button>
-        <button id="btnToday" class="btn small primary">Today</button>
-        <button id="btnNewNote" class="btn small primary">+ New note</button>
-        <span id="dayHint" class="muted"></span>
-      </div>
-    </div>
-
+  <!-- ================= SELL ================= -->
+  <section id="tab-sell" class="tabpage">
     <div class="total-hero">
-      <small id="totalLabel">Total earnings · today</small>
+      <small id="totalLabel">Total hari ini</small>
       <div class="big" id="dayTotal">Rp 0</div>
       <div class="split">
-        <span class="pill">💵 Cash: <b id="cashTotal">Rp 0</b> (<span id="cashCount">0</span>)</span>
-        <span class="pill">📱 QRIS: <b id="qrisTotal">Rp 0</b> (<span id="qrisCount">0</span>)</span>
+        <span class="pill">💵 <b id="cashTotal">Rp 0</b> (<span id="cashCount">0</span>)</span>
+        <span class="pill">📱 <b id="qrisTotal">Rp 0</b> (<span id="qrisCount">0</span>)</span>
         <span class="pill">🧾 <span id="dayCount">0</span> sales</span>
       </div>
     </div>
 
-    <!-- notes list for the day -->
-    <div id="notesListWrap" class="card">
-      <h2 id="notesTitle">Today's notes</h2>
-      <p class="muted" style="margin:4px 0 10px">One day, many notes — tap one to open it</p>
-      <div id="notesList"></div>
-      <div id="notesEmpty" class="empty hidden">No notes for this day yet.<br><small>Press <b>+ New note</b> above to start one.</small></div>
+    <div class="card">
+      <div class="day-nav">
+        <button id="btnPrevDay" class="btn small">‹</button>
+        <input id="viewDate" type="date">
+        <button id="btnNextDay" class="btn small">›</button>
+        <button id="btnToday" class="btn small primary">Hari ini</button>
+      </div>
+      <input id="prodSearch" placeholder="🔍 Cari produk cepat…" autocomplete="off">
+      <div id="quickGrid" class="quick-grid"></div>
+      <div id="quickEmpty" class="empty hidden">Belum ada produk cepat.<br><small>Tambah di tab 📦 Produk.</small></div>
     </div>
 
-    <!-- one open note -->
-    <div id="noteDetailWrap" class="hidden">
-      <div class="card">
-        <div class="day-nav">
-          <button id="btnBackNotes" class="btn small">‹ Notes</button>
-          <h2 id="noteTitle" style="flex:1">Note</h2>
-          <button id="btnRenameNote" class="btn small">✏️ Rename</button>
-          <button id="btnCloseNote" class="btn small">🔒 Close note</button>
-        </div>
+    <div class="card cart-card">
+      <div class="cart-head"><h2>🛒 Keranjang</h2><button id="btnClearCart" class="link">hapus</button></div>
+      <div id="cartItems"></div>
+      <div id="cartEmpty" class="cart-empty">Ketuk produk di atas untuk mulai jualan 👆</div>
+      <div class="pay-seg">
+        <button id="payCash" class="active-cash">💵 Cash</button>
+        <button id="payQris">📱 QRIS</button>
       </div>
-      <div class="pos-layout" style="grid-template-columns:1fr 380px">
-        <div>
-          <div class="card">
-            <h2 id="entriesTitle">Sales</h2>
-            <p class="muted" style="margin:4px 0 10px">Newest at the bottom · auto-saved</p>
-            <div id="closedBanner" class="closed-banner hidden">🔒 <b>Note closed</b><span>· total <b id="closedTotal">–</b></span><button id="btnReopenNote" class="btn small">Reopen</button></div>
-            <div id="entries"></div>
-            <div id="entriesEmpty" class="empty hidden">No sales in this note yet.<br><small>Add the first one on the right →</small></div>
-          </div>
-        </div>
+      <div class="trow grand"><span>Total</span><b id="cartTotal">Rp 0</b></div>
+      <button id="btnCheckout" class="btn primary big">✅ Bayar &amp; Simpan</button>
+    </div>
 
-        <aside class="cart-panel">
-          <div class="card add-card" id="addCard">
-            <h2 id="formTitle">+ Add sale</h2>
-            <input type="hidden" id="editId">
-            <label for="fItem">Item name *</label>
-            <input id="fItem" placeholder="Item name" autocomplete="off">
-            <div class="form-2col">
-              <div>
-                <label for="fQty">Quantity *</label>
-                <input id="fQty" type="number" min="0.01" step="any" value="1" inputmode="decimal">
-              </div>
-              <div>
-                <label for="fPrice">Price (each) *</label>
-                <input id="fPrice" type="number" min="0" step="any" value="" placeholder="0" inputmode="decimal">
-              </div>
-            </div>
-            <label>Payment *</label>
-            <div class="pay-seg">
-              <button id="payCash" class="active-cash">💵 Cash</button>
-              <button id="payQris">📱 QRIS</button>
-            </div>
-            <div class="form-2col">
-              <div>
-                <label for="fDate">Date</label>
-                <input id="fDate" type="date" disabled title="Sales belong to the open note's date">
-              </div>
-              <div>
-                <label for="fSub">Subtotal</label>
-                <input id="fSub" disabled value="0">
-              </div>
-            </div>
-            <label for="fNote">Note (optional)</label>
-            <input id="fNote" placeholder="e.g. regular customer" autocomplete="off">
-            <button id="btnSave" class="btn primary big">💾 Save sale</button>
-            <button id="btnCancelEdit" class="btn ghost big hidden">Cancel edit</button>
-          </div>
-        </aside>
+    <div class="card">
+      <h2>+ Item manual</h2>
+      <p class="muted small">Untuk barang yang tidak ada di produk cepat</p>
+      <label class="lbl">Nama barang *<input id="fItem" placeholder="mis. Kopi susu" autocomplete="off"></label>
+      <div class="form-2col">
+        <label class="lbl">Qty *<input id="fQty" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+        <label class="lbl">Harga *<input id="fPrice" type="number" min="0" step="any" placeholder="0" inputmode="decimal"></label>
       </div>
+      <button id="btnAddCustom" class="btn big">＋ Masuk keranjang</button>
+    </div>
+
+    <div class="card">
+      <h2>Penjualan <span id="salesDate"></span></h2>
+      <div id="entries"></div>
+      <div id="entriesEmpty" class="empty hidden">Belum ada penjualan hari ini.</div>
+    </div>
+  </section>
+
+  <!-- ================= PRODUCTS ================= -->
+  <section id="tab-products" class="tabpage hidden">
+    <div class="card">
+      <h2>📦 Produk cepat</h2>
+      <p class="muted small">Ketuk di tab Jual untuk langsung masuk keranjang</p>
+      <input type="hidden" id="editPid">
+      <label class="lbl">Nama produk *<input id="pName" placeholder="mis. Es teh" autocomplete="off"></label>
+      <label class="lbl">Harga jual *<input id="pPrice" type="number" min="0" step="any" placeholder="5000" inputmode="decimal"></label>
+      <div class="row2">
+        <button id="btnSaveProduct" class="btn primary">💾 Simpan</button>
+        <button id="btnCancelProduct" class="btn ghost hidden">Batal</button>
+      </div>
+    </div>
+    <div id="productList"></div>
+    <div id="productEmpty" class="empty hidden">Belum ada produk. Tambah yang paling laris dulu 👆</div>
+  </section>
+
+  <!-- ================= STATS ================= -->
+  <section id="tab-stats" class="tabpage hidden">
+    <div class="card row-between">
+      <div><h2>📊 Statistik</h2><p class="muted small" id="statsLabel">Bulan ini</p></div>
+      <input id="statMonth" type="month">
+    </div>
+    <div class="stat-grid">
+      <div class="card stat"><small>Hari ini</small><b id="statToday">–</b></div>
+      <div class="card stat"><small>Bulan ini</small><b id="statMonthTotal">–</b></div>
+      <div class="card stat"><small>Rata2 / hari</small><b id="statAvg">–</b></div>
+      <div class="card stat"><small>Cash</small><b id="statCash">–</b></div>
+      <div class="card stat"><small>QRIS</small><b id="statQris">–</b></div>
+      <div class="card stat"><small>Transaksi</small><b id="statCount">–</b></div>
+    </div>
+    <div class="card">
+      <h2>7 hari terakhir</h2>
+      <canvas id="chartWeek" height="140"></canvas>
+    </div>
+    <div class="card">
+      <h2>Cash vs QRIS</h2>
+      <div class="splitbar"><div id="splitCashBar"></div><div id="splitQrisBar"></div></div>
+      <p class="muted small" id="splitLabel"></p>
+    </div>
+    <div class="card">
+      <h2>🔥 Terlaris bulan ini</h2>
+      <div id="bestList"></div>
     </div>
   </section>
 
   <!-- ================= HISTORY ================= -->
   <section id="tab-history" class="tabpage hidden">
     <div class="page-head">
-      <div>
-        <h2>History</h2>
-        <p class="muted">Daily totals · tap a day to open its note</p>
-      </div>
+      <div><h2>Riwayat</h2><p class="muted small">Total harian · ketuk untuk buka hari</p></div>
       <div class="toolbar-row">
         <input id="histMonth" type="month">
-        <button id="btnLoadHist" class="btn">Load</button>
-        <button id="btnThisMonth" class="btn ghost">This month</button>
+        <button id="btnLoadHist" class="btn small">Load</button>
       </div>
     </div>
-    <div class="stat-cards">
-      <div class="card stat"><small>Month total</small><b id="histTotal">–</b><span id="histCount">0 sales days</span></div>
-      <div class="card stat"><small>Average / day</small><b id="histAvg">–</b><span>per selling day</span></div>
-      <div class="card stat"><small>Month</small><b id="histLabel">–</b><span>report period</span></div>
+    <div class="stat-grid">
+      <div class="card stat"><small>Total</small><b id="histTotal">–</b><span id="histCount"></span></div>
+      <div class="card stat"><small>Rata2</small><b id="histAvg">–</b></div>
     </div>
     <div class="card">
       <div class="table-wrap">
         <table id="histTable">
-          <thead><tr><th>Date</th><th>Sales</th><th>Cash</th><th>QRIS</th><th>Total</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>Jml</th><th>Total</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -190,53 +149,54 @@
 
   <!-- ================= SETTINGS ================= -->
   <section id="tab-settings" class="tabpage hidden">
-    <div class="settings-grid">
-      <div class="card">
-        <h2>🏪 Notebook profile</h2>
-        <label>Notebook name<input id="sShop" placeholder="My Sales Notes"></label>
-        <label>Currency symbol<input id="sCur" placeholder="Rp"></label>
-        <button id="btnSaveSettings" class="btn primary">Save</button>
+    <div class="card">
+      <h2>🏪 Toko</h2>
+      <label class="lbl">Nama<input id="sShop" placeholder="My Sales Notes"></label>
+      <label class="lbl">Mata uang<input id="sCur" placeholder="Rp"></label>
+      <button id="btnSaveSettings" class="btn primary">Simpan</button>
+    </div>
+    <div class="card">
+      <h2>🔑 Kunci</h2>
+      <p class="muted small" id="keyModeHint">Kunci perangkat ini.</p>
+      <label class="lbl">Kunci lama<input id="kOld" type="password" placeholder="saat ini"></label>
+      <label class="lbl">Kunci baru (min 4)<input id="kNew" type="password" placeholder="baru"></label>
+      <button id="btnChangeKey" class="btn">Ganti kunci</button>
+      <hr class="sep">
+      <h2>🔄 Backup</h2>
+      <button id="btnExport" class="btn">⬇ Export JSON</button>
+      <div class="input-group">
+        <input type="file" id="importFile" accept=".json,application/json">
+        <button id="btnImport" class="btn">⬆ Import</button>
       </div>
-      <div class="card">
-        <h2>🔑 Access key</h2>
-        <p class="muted" id="keyModeHint">Locks the notes on <b>this device only</b> — data is stored in this browser.</p>
-        <div class="stack">
-          <label>Old key<input id="kOld" type="password" placeholder="current key"></label>
-          <label>New key (min 4 chars)<input id="kNew" type="password" placeholder="new key"></label>
-          <button id="btnChangeKey" class="btn">Change key</button>
-        </div>
-        <hr>
-        <h2>🔄 Backup / move devices</h2>
-        <p class="muted">Each device keeps its own notes. Export here → Import on the other device.</p>
-        <div class="stack">
-          <button id="btnExport" class="btn">⬇ Export all (JSON)</button>
-          <div class="input-group">
-            <input type="file" id="importFile" accept=".json,application/json">
-            <button id="btnImport" class="btn">⬆ Import</button>
-          </div>
-        </div>
-      </div>
+      <hr class="sep">
+      <button id="btnLogout" class="btn ghost">🔒 Kunci aplikasi</button>
     </div>
   </section>
 </main>
 
+<nav class="bottomnav">
+  <button class="tab active" data-tab="sell">🛒<span>Jual</span></button>
+  <button class="tab" data-tab="products">📦<span>Produk</span></button>
+  <button class="tab" data-tab="stats">📊<span>Stats</span></button>
+  <button class="tab" data-tab="history">🕘<span>Riwayat</span></button>
+  <button class="tab" data-tab="settings">⚙️<span>Lainnya</span></button>
+</nav>
+
 <div id="toasts" aria-live="polite"></div>
 
-<!-- key gate -->
 <div id="authScreen" class="auth-screen">
   <div class="auth-card">
-    <div class="auth-logo">📝</div>
+    <div class="auth-logo">🧾</div>
     <h2 id="authShopName">My Sales Notes</h2>
-    <p class="muted" id="authHint">Enter your access key to open your notes.</p>
+    <p class="muted" id="authHint">Enter your access key.</p>
     <div id="authSetupPane" class="stack hidden">
-      <label>Create access key (min 4 chars)<input id="setupKey" type="password" placeholder="choose a private key"></label>
-      <label>Repeat key<input id="setupKey2" type="password" placeholder="repeat key"></label>
-      <button id="btnSetup" class="btn primary big">Create + open</button>
-      <small class="muted center">Key locks notes on this device only.</small>
+      <label class="lbl">Buat kunci (min 4)<input id="setupKey" type="password"></label>
+      <label class="lbl">Ulangi<input id="setupKey2" type="password"></label>
+      <button id="btnSetup" class="btn primary big">Buat + buka</button>
     </div>
     <div id="authLoginPane" class="stack">
-      <label>Access key<input id="loginKey" type="password" placeholder="••••••" autocomplete="current-password"></label>
-      <button id="btnLogin" class="btn primary big">Unlock notes</button>
+      <label class="lbl">Kunci akses<input id="loginKey" type="password" placeholder="••••••" autocomplete="current-password"></label>
+      <button id="btnLogin" class="btn primary big">Buka</button>
     </div>
     <div id="authErr" class="auth-err hidden"></div>
   </div>
