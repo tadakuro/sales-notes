@@ -73,6 +73,7 @@ function migrate() {
   if (!localStorage.getItem(LS_PD)) saveProducts([]);
   if (!localStorage.getItem(LS_DP)) localStorage.setItem(LS_DP, '[]');
   if (!localStorage.getItem(LS_ST)) localStorage.setItem(LS_ST, '{}');
+  seedProductsFromEntries();
   if (!localStorage.getItem(LS_MG)) {
     localStorage.setItem(LS_D, JSON.stringify(entries.map(e => e.id)));
     localStorage.setItem(LS_DN, JSON.stringify(notes.map(n => n.id)));
@@ -80,6 +81,28 @@ function migrate() {
     localStorage.setItem(LS_DS, JSON.stringify(Object.keys(loadStates())));
     localStorage.setItem(LS_MG, '1');
   }
+}
+
+/* auto-fill quick products from item names already in sales entries
+ * (so old notes' items appear as tappable products; runs on load + after sync) */
+function seedProductsFromEntries() {
+  try {
+    const entries = loadEntries().filter(e => !e.deleted && e.item && String(e.item).trim());
+    if (!entries.length) return;
+    const prods = loadProducts();
+    const known = new Set(prods.filter(p => !p.deleted).map(p => String(p.name).toLowerCase()));
+    const lastPrice = {};
+    entries.forEach(e => { lastPrice[String(e.item).trim()] = Number(e.price) || 0; });
+    let added = 0;
+    Object.keys(lastPrice).sort((a, b) => a.localeCompare(b)).forEach(name => {
+      if (known.has(name.toLowerCase())) return;
+      const now = nowIso(), id = uid();
+      prods.push({ id, name, price: lastPrice[name], created_at: now, updated_at: now, deleted: 0 });
+      markDirtyProduct(id);
+      added++;
+    });
+    if (added) { saveProducts(prods); syncSoon(); }
+  } catch (e) {}
 }
 
 /* one default note per date keeps the POS simple while old notes keep syncing */
@@ -602,6 +625,7 @@ async function syncNow() {
       saveProducts(Object.values(map));
     }
     localStorage.setItem(LS_LP, ((remote && remote.length) || (remoteNotes && remoteNotes.length) || (remoteStates && remoteStates.length) || (remoteProds && remoteProds.length)) ? newest : nowIso());
+    try { seedProductsFromEntries(); } catch (e) {}
     renderAll();
     setSyncState('ok');
   } catch (e) { setSyncState('offline'); }
