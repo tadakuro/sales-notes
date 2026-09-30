@@ -293,21 +293,7 @@ function renderSell() {
   $('cashTotal').textContent = money(s.cash_total); $('cashCount').textContent = s.cash_count;
   $('qrisTotal').textContent = money(s.qris_total); $('qrisCount').textContent = s.qris_count;
   $('dayCount').textContent = s.count;
-  renderQuick(); renderDayList(list); loadHeader();
-}
-function renderQuick() {
-  const q = ($('prodSearch').value || '').toLowerCase();
-  const prods = loadProducts().filter(p => !p.deleted && (!q || p.name.toLowerCase().includes(q)))
-    .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 30);
-  const box = $('quickGrid'); box.innerHTML = '';
-  $('quickEmpty').classList.toggle('hidden', prods.length > 0);
-  prods.forEach(p => {
-    const b = document.createElement('button');
-    b.className = 'qcard';
-    b.innerHTML = `<b>${esc(p.name)}</b><span>${esc(money(p.price))}</span>`;
-    b.addEventListener('click', () => fillForm(p.name, p.price));
-    box.appendChild(b);
-  });
+  renderDayList(list); loadHeader();
 }
 /* single direct-save form (merged cart + manual input) */
 function fillForm(name, price) {
@@ -439,7 +425,7 @@ function saveProduct() {
     markDirtyProduct(id);
     toast(name + ' ditambah ✓', 'ok');
   }
-  saveProducts(list); cancelProductForm(); renderProducts(); renderQuick(); syncSoon();
+  saveProducts(list); cancelProductForm(); renderProducts(); syncSoon();
 }
 function cancelProductForm() {
   editPid = null; $('editPid').value = '';
@@ -455,7 +441,7 @@ function delProduct(id) {
   const i = list.findIndex(x => x.id === id);
   list[i] = { ...list[i], deleted: 1, updated_at: nowIso() };
   saveProducts(list); markDirtyProduct(id);
-  renderProducts(); renderQuick(); syncSoon(); toast('Produk dihapus', 'ok');
+  renderProducts(); syncSoon(); toast('Produk dihapus', 'ok');
 }
 
 /* ---------- STATS ---------- */
@@ -706,7 +692,6 @@ $('btnPrevDay').addEventListener('click', () => { const [y, m, d] = viewDate.spl
 $('btnNextDay').addEventListener('click', () => { const [y, m, d] = viewDate.split('-').map(Number); viewDate = localDay(new Date(y, m - 1, d + 1)); $('viewDate').value = viewDate; renderSell(); });
 $('btnToday').addEventListener('click', () => { viewDate = todayStr(); $('viewDate').value = viewDate; renderSell(); });
 $('viewDate').addEventListener('change', e => { if (e.target.value) { viewDate = e.target.value; renderSell(); } });
-$('prodSearch').addEventListener('input', renderQuick);
 $('payCash').addEventListener('click', () => setPay('cash'));
 $('payQris').addEventListener('click', () => setPay('qris'));
 $('btnSave').addEventListener('click', saveManual);
