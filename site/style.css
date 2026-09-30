@@ -151,15 +151,3 @@ tr:last-child td{border-bottom:none}
 .auth-card p{text-align:center;font-size:13px}
 .stack{display:flex;flex-direction:column;gap:4px}
 .auth-err{background:var(--red-bg);color:var(--red);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;margin-top:10px}
-
-/* patch notes hero */
-.update-hero{display:flex;justify-content:space-between;align-items:center;gap:10px;background:linear-gradient(135deg,#16a34a,#0ea5e9);border-radius:16px;padding:12px 14px;margin-bottom:12px;box-shadow:0 12px 30px rgba(14,165,233,.3)}
-.update-hero .uinfo b{display:block;font-size:14px}
-.update-hero .uinfo small{opacity:.9;font-size:12px}
-.update-hero .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;min-height:38px}
-.patch-item{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#0e1528}
-.patch-item b{font-size:13.5px}
-.patch-item .pdate{font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.05em}
-.patch-item ul{margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--ink)}
-.patch-item li{margin:2px 0}
-.patch-item.current{border-color:var(--green)}

@@ -159,46 +159,6 @@ function tickClock() {
 }
 setInterval(tickClock, 10000); tickClock();
 
-
-/* ---------- patch notes ---------- */
-const PATCH_NOTES = [
-  { v: "v5 · 30 Sep 2026 — current", d: [
-    "Direct-save form (cart digabung, simpan langsung + subtotal live)",
-    "Kunci per catatan dikembalikan + grouped list per note",
-    "Quick products + auto-seed dari nama barang lama",
-    "Dashboard charts, stats Cash vs QRIS, sync badge + retry 10s",
-  ], cur: true },
-  { v: "v4 · 28 Sep 2026 — cloud sync", d: [
-    "Worker + D1 auto-sync, offline-first + antrean lokal",
-    "Multi-note per hari, lock + snapshot totals (synced)",
-    "Orphan heal, history buka hari langsung",
-  ] },
-  { v: "v3 · 28 Sep 2026 — sales notes rework", d: [
-    "Rework dari kasir barcode → catatan penjualan harian",
-    "Key login, total Cash/QRIS, Pages static site",
-    "Site key gate (hash only), local timezone date",
-  ] },
-  { v: "v2 · 25 Sep 2026 — auth", d: [
-    "Login/register + identitas kasir, denominasi IDR",
-  ] },
-  { v: "v1 · 23 Sep 2026 — first build", d: [
-    "Cashier POS: barcode DB, stock tracking, sales reports",
-  ] },
-];
-function renderPatchNotes() {
-  const box = document.getElementById('patchList');
-  if (!box) return;
-  box.innerHTML = '';
-  PATCH_NOTES.forEach(p => {
-    const d = document.createElement('div');
-    d.className = 'patch-item' + (p.cur ? ' current' : '');
-    d.innerHTML = `<div class="pdate">${esc(p.v)}</div><ul>${p.d.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
-    box.appendChild(d);
-  });
-  const hb = document.getElementById('patchBuild');
-  if (hb) hb.textContent = `Riwayat update · ${PATCH_NOTES.length} versi · build terbaru 30 Sep 2026`;
-}
-
 /* ---------- tabs ---------- */
 document.querySelectorAll('.bottomnav .tab[data-tab]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.bottomnav .tab').forEach(x => x.classList.remove('active'));
@@ -319,7 +279,7 @@ function setPay(p) {
 
 /* ---------- SELL ---------- */
 function safe(fn) { try { fn(); } catch (e) { try { console.warn(e); } catch (_) {} } }
-function renderAll() { safe(renderSell); safe(renderProducts); safe(renderStats); safe(loadHistory); safe(loadHeader); safe(renderPatchNotes); }
+function renderAll() { safe(renderSell); safe(renderProducts); safe(renderStats); safe(loadHistory); safe(loadHeader); }
 function loadHeader() {
   const t = summarize(dayEntries(todayStr()));
   $('stToday').textContent = money(t.total);
@@ -745,7 +705,6 @@ $('btnCancelProduct').addEventListener('click', cancelProductForm);
 $('statMonth').addEventListener('change', renderStats);
 $('btnLoadHist').addEventListener('click', loadHistory);
 $('btnSaveSettings').addEventListener('click', saveSettings);
-$('btnViewPatch').addEventListener('click', () => { document.querySelector('.bottomnav .tab[data-tab=settings]').click(); setTimeout(() => { const el = document.getElementById('patchList'); if (el) el.scrollIntoView({behavior:'smooth'}); }, 80); });
 $('btnChangeKey').addEventListener('click', changeKey);
 $('btnExport').addEventListener('click', exportDB);
 $('btnImport').addEventListener('click', importDB);
