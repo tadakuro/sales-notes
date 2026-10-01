@@ -46,6 +46,12 @@
     </div>
 
     <div class="card">
+      <h2>Penjualan <span id="salesDate"></span></h2>
+      <div id="entries"></div>
+      <div id="entriesEmpty" class="empty hidden">Belum ada penjualan hari ini.</div>
+    </div>
+
+    <div class="card">
       <h2>+ Tambah penjualan</h2>
       <p class="muted small">Isi lalu tekan Simpan — langsung masuk catatan hari ini</p>
       <label class="lbl">Nama barang *<input id="fItem" placeholder="mis. Kopi susu" autocomplete="off"></label>
@@ -62,11 +68,6 @@
       <button id="btnSave" class="btn primary big">💾 Simpan penjualan</button>
     </div>
 
-    <div class="card">
-      <h2>Penjualan <span id="salesDate"></span></h2>
-      <div id="entries"></div>
-      <div id="entriesEmpty" class="empty hidden">Belum ada penjualan hari ini.</div>
-    </div>
   </section>
 
   <!-- ================= PRODUCTS ================= -->
