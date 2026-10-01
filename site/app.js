@@ -464,15 +464,17 @@ function renderStats() {
   const cp = tot ? Math.round(ms.cash_total / tot * 100) : 50;
   $('splitCashBar').style.width = cp + '%'; $('splitQrisBar').style.width = (100 - cp) + '%';
   $('splitLabel').textContent = `Cash ${cp}% · QRIS ${100 - cp}%`;
-  // last 7 days bar
-  const labels = [], vals = [];
+  // last 7 days: bars = earnings (Rp), line = sales count (trx)
+  const labels = [], vals = [], counts = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
     const ds = localDay(d);
+    const dayList = all.filter(e => e.date === ds);
     labels.push(ds.slice(8));
-    vals.push(all.filter(e => e.date === ds).reduce((a, e) => a + e.subtotal, 0));
+    vals.push(dayList.reduce((a, e) => a + e.subtotal, 0));
+    counts.push(dayList.length);
   }
-  drawBars($('chartWeek'), vals, labels);
+  drawBars($('chartWeek'), vals, labels, counts);
   // best sellers
   const byItem = {};
   mo.forEach(e => { byItem[e.item] = byItem[e.item] || { qty: 0, total: 0 }; byItem[e.item].qty += e.qty; byItem[e.item].total += e.subtotal; });
@@ -485,7 +487,7 @@ function renderStats() {
     bl.appendChild(r);
   });
 }
-function drawBars(cv, vals, labels) {
+function drawBars(cv, vals, labels, counts) {
   if (!cv) return;
   const dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth || 320, H = 150;
@@ -493,9 +495,11 @@ function drawBars(cv, vals, labels) {
   const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
   const max = Math.max(...vals, 1);
+  const maxC = Math.max(...(counts || []), 1);
   const n = vals.length, bw = (W - 16) / n;
+  const pts = [];
   vals.forEach((v, i) => {
-    const h = Math.max(4, (v / max) * (H - 40));
+    const h = Math.max(4, (v / max) * (H - 46));
     const x = 8 + i * bw + bw * 0.2, w = bw * 0.6, y = H - 22 - h;
     const g = ctx.createLinearGradient(0, y, 0, y + h);
     g.addColorStop(0, '#34d399'); g.addColorStop(1, '#0ea5e9');
@@ -504,7 +508,23 @@ function drawBars(cv, vals, labels) {
     else ctx.fillRect(x, y, w, h);
     ctx.fillStyle = '#8b96b3'; ctx.font = '10px Inter,system-ui'; ctx.textAlign = 'center';
     ctx.fillText(labels[i], x + w / 2, H - 8);
+    // sales count dot position (scaled to same plot height)
+    const c = (counts && counts[i]) || 0;
+    const cy = H - 22 - Math.max(0, (c / maxC) * (H - 46));
+    pts.push([x + w / 2, cy, c, v]);
   });
+  if (counts) {
+    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => { i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+    pts.forEach(([x, y, c]) => {
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fde68a'; ctx.font = 'bold 9px Inter,system-ui'; ctx.textAlign = 'center';
+      ctx.fillText(c + 'x', x, y - 7);
+    });
+  }
 }
 
 /* ---------- history ---------- */
