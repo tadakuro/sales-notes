@@ -19,12 +19,12 @@ CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
 CREATE INDEX IF NOT EXISTS idx_entries_note ON entries(note_id);
 
 -- Notes: many per date. Synced like entries.
--- shift: '1' or '2' — one open note per date+shift (Shift 1 / Shift 2).
+-- shift: pagi / siang / lembur — one open note per date+shift.
 CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
     date TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT 'Note',
-    shift TEXT NOT NULL DEFAULT '1',
+    shift TEXT NOT NULL DEFAULT 'pagi',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted INTEGER NOT NULL DEFAULT 0

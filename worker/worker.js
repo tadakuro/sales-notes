@@ -36,6 +36,14 @@ const NOTE_COLS = 'id,date,title,shift,created_at,updated_at,deleted';
 const STATE_COLS = 'id,date,closed,total,cash_total,qris_total,count,closed_at,updated_at';
 const PROD_COLS = 'id,name,price,created_at,updated_at,deleted';
 
+// Shifts: pagi / siang / lembur. Maps legacy '1'/'2' from the 2-shift build.
+function normShift(s) {
+  const t = String(s ?? 'pagi').trim().toLowerCase();
+  if (t === 'siang' || t === '2' || t === 'shift 2' || t === 'shift2') return 'siang';
+  if (t === 'lembur' || t === '3' || t === 'shift 3' || t === 'shift3' || t === 'malam') return 'lembur';
+  return 'pagi';
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -63,7 +71,7 @@ export default {
             const q2 = await env.DB.prepare(
               `SELECT id,date,title,created_at,updated_at,deleted FROM notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
             ).bind(since).all();
-            notes = (q2.results || []).map(r => ({ ...r, shift: '1' }));
+            notes = (q2.results || []).map(r => ({ ...r, shift: 'pagi' }));
           } catch (e2) { /* pre-notes DBs — entries still sync */ }
         }
         try {
@@ -117,7 +125,7 @@ export default {
           const nstmts = [];
           for (const x of nchanges) {
             if (!x || typeof x.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) continue;
-            const shift = String(x.shift || '1') === '2' ? '2' : '1';
+            const shift = normShift(x.shift);
             nstmts.push(env.DB.prepare(
               `INSERT INTO notes (${NOTE_COLS}) VALUES (?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET

@@ -11,7 +11,7 @@ const SYNC_ON = typeof SYNC_URL === 'string' && SYNC_URL.startsWith('http');
 let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
 let sessionKey = sessionStorage.getItem('sn_key') || null;
 let viewDate = null;
-let viewShift = '1';
+let viewShift = 'pagi';
 let payMethod = 'cash';
 let editPid = null;
 
@@ -57,12 +57,18 @@ function migrate() {
     if (!n.updated_at) { n.updated_at = n.created_at || nowIso(); touchedN = true; }
     if (n.deleted === undefined) { n.deleted = 0; touchedN = true; }
     if (!n.shift) {
-      // Backfill: infer shift from title ("shift 2" -> 2), else default to shift 1.
-      // Old single-note days become Shift 1 so they keep syncing untouched.
-      const m = String(n.title || '').toLowerCase().match(/shift\s*2|shift2|\b2\b.*shift|shift.*\b2\b/);
-      const m2 = String(n.title || '').toLowerCase().includes('shift 2') || String(n.title || '').toLowerCase().includes('shift2');
-      n.shift = (m || m2) ? '2' : '1';
+      // Backfill: infer shift from title, else default to pagi.
+      // Old single-note days become Pagi so they keep syncing untouched.
+      // Also maps the short-lived '1'/'2' values from the 2-shift build.
+      const t = String(n.title || '').toLowerCase();
+      if (t.includes('lembur') || t.includes('malam') || t.includes('shift 3') || t.includes('shift3')) n.shift = 'lembur';
+      else if (t.includes('siang') || t.includes('shift 2') || t.includes('shift2') || t.includes('kasir 2')) n.shift = 'siang';
+      else n.shift = 'pagi';
       touchedN = true;
+    } else {
+      const before = n.shift;
+      n.shift = normShift(n.shift);
+      if (n.shift !== before) touchedN = true;
     }
   });
   const orphans = entries.filter(e => !e.note_id);
@@ -71,8 +77,8 @@ function migrate() {
     orphans.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
     Object.keys(byDate).forEach(date => {
       let note = notes.find(n => !n.deleted && n.date === date);
-      if (!note) { note = { id: uid(), date, title: 'Shift 1', shift: '1', created_at: nowIso(), updated_at: nowIso(), deleted: 0 }; notes.push(note); touchedN = true; }
-      else if (!note.shift) { note.shift = '1'; touchedN = true; }
+      if (!note) { note = { id: uid(), date, title: 'Pagi', shift: 'pagi', created_at: nowIso(), updated_at: nowIso(), deleted: 0 }; notes.push(note); touchedN = true; }
+      else if (!note.shift) { note.shift = 'pagi'; touchedN = true; }
       byDate[date].forEach(e => { e.note_id = note.id; });
     });
     touchedE = true;
@@ -115,9 +121,16 @@ function seedProductsFromEntries() {
 }
 
 /* writable note for new sales: one open note per date+shift,
- * so a day holds two notes (Shift 1 / Shift 2). Old notes keep syncing. */
-function normShift(s) { return String(s || '1') === '2' ? '2' : '1'; }
-function shiftLabel(s) { return normShift(s) === '2' ? 'Shift 2' : 'Shift 1'; }
+ * so a day holds three notes (Pagi / Siang / Lembur). Old notes keep syncing. */
+const SHIFT_ORDER = { pagi: 0, siang: 1, lembur: 2 };
+function normShift(s) {
+  const t = String(s ?? 'pagi').trim().toLowerCase();
+  if (t === 'siang' || t === '2' || t === 'shift 2' || t === 'shift2') return 'siang';
+  if (t === 'lembur' || t === '3' || t === 'shift 3' || t === 'shift3' || t === 'malam') return 'lembur';
+  return 'pagi';
+}
+function shiftLabel(s) { const sh = normShift(s); return sh === 'siang' ? 'Siang' : sh === 'lembur' ? 'Lembur' : 'Pagi'; }
+function shiftBadge(s) { const sh = normShift(s); return sh === 'siang' ? '🌤️ Siang' : sh === 'lembur' ? '🌙 Lembur' : '☀️ Pagi'; }
 function writableNote(date, shift) {
   const sh = normShift(shift ?? viewShift);
   const day = loadNotes().filter(x => !x.deleted && x.date === date && normShift(x.shift) === sh)
@@ -249,7 +262,7 @@ function doLogout() {
 function afterLogin() {
   loadSettings(); refreshTitles(); migrate();
   viewDate = todayStr();
-  if (!viewShift) viewShift = '1';
+  if (!viewShift) viewShift = 'pagi';
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
@@ -300,8 +313,9 @@ function setPay(p) {
 }
 function setShift(s) {
   viewShift = normShift(s);
-  if ($('shift1')) $('shift1').className = viewShift === '1' ? 'active-shift1' : '';
-  if ($('shift2')) $('shift2').className = viewShift === '2' ? 'active-shift2' : '';
+  if ($('shiftPagi')) $('shiftPagi').className = viewShift === 'pagi' ? 'active-shift' : '';
+  if ($('shiftSiang')) $('shiftSiang').className = viewShift === 'siang' ? 'active-shift' : '';
+  if ($('shiftLembur')) $('shiftLembur').className = viewShift === 'lembur' ? 'active-shift' : '';
 }
 
 /* ---------- SELL ---------- */
@@ -320,18 +334,18 @@ function renderSell() {
   $('cashTotal').textContent = money(s.cash_total); $('cashCount').textContent = s.cash_count;
   $('qrisTotal').textContent = money(s.qris_total); $('qrisCount').textContent = s.qris_count;
   $('dayCount').textContent = s.count;
-  // Per-shift breakdown (Shift 1 vs Shift 2) for the viewed day.
+  // Per-shift breakdown (Pagi / Siang / Lembur) for the viewed day.
   try {
     const byId = {};
     loadNotes().forEach(n => { byId[n.id] = n; });
-    let t1 = 0, t2 = 0, c1 = 0, c2 = 0;
+    const sums = { pagi: { t: 0, c: 0 }, siang: { t: 0, c: 0 }, lembur: { t: 0, c: 0 } };
     list.forEach(e => {
       const n = byId[e.note_id];
-      if (n && normShift(n.shift) === '2') { t2 += e.subtotal; c2++; }
-      else { t1 += e.subtotal; c1++; }
+      const sh = normShift(n ? n.shift : 'pagi');
+      sums[sh].t += e.subtotal; sums[sh].c++;
     });
     const el = $('shiftTotals');
-    if (el) el.textContent = `☀️ Shift 1: ${money(t1)} (${c1}) · 🌙 Shift 2: ${money(t2)} (${c2})`;
+    if (el) el.textContent = `☀️ Pagi: ${money(sums.pagi.t)} (${sums.pagi.c}) · 🌤️ Siang: ${money(sums.siang.t)} (${sums.siang.c}) · 🌙 Lembur: ${money(sums.lembur.t)} (${sums.lembur.c})`;
   } catch (e) {}
   renderDayList(list); loadHeader();
 }
@@ -380,8 +394,8 @@ function renderDayList(list) {
   Object.keys(groups)
     .sort((a, b) => {
       const na = byId[a], nb = byId[b];
-      const sa = na ? normShift(na.shift) : '1', sb = nb ? normShift(nb.shift) : '1';
-      if (sa !== sb) return sa.localeCompare(sb);
+      const sa = na ? normShift(na.shift) : 'pagi', sb = nb ? normShift(nb.shift) : 'pagi';
+      if (sa !== sb) return (SHIFT_ORDER[sa] ?? 0) - (SHIFT_ORDER[sb] ?? 0);
       return String(na ? na.created_at : '').localeCompare(String(nb ? nb.created_at : ''));
     })
     .forEach(nid => {
@@ -391,10 +405,10 @@ function renderDayList(list) {
       const sec = document.createElement('div');
       sec.className = 'note-sec';
       const locked = nid && isClosed(nid);
-      const shiftBadge = n ? (normShift(n.shift) === '2' ? '🌙 Shift 2' : '☀️ Shift 1') : '☀️ Shift 1';
+      const badge = n ? shiftBadge(n.shift) : '☀️ Pagi';
       const head = document.createElement('div');
       head.className = 'note-sec-head';
-      head.innerHTML = `<b>${locked ? '🔒' : '📝'} ${esc(n ? n.title : 'Catatan')} · ${shiftBadge}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
+      head.innerHTML = `<b>${locked ? '🔒' : '📝'} ${esc(n ? n.title : 'Catatan')} · ${badge}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
       if (nid && n) {
         const lb = document.createElement('button');
         lb.className = 'btn small ghost';
@@ -635,7 +649,7 @@ async function importDB() {
   });
   saveEntries(list);
   if (Array.isArray(j.notes)) {
-    const nn = j.notes.map(n => ({ ...n, shift: normShift(n.shift || '1') }));
+    const nn = j.notes.map(n => ({ ...n, shift: normShift(n.shift || 'pagi') }));
     saveNotes(nn);
   }
   if (j.states) localStorage.setItem(LS_ST, JSON.stringify(j.states));
@@ -724,7 +738,7 @@ async function syncNow() {
       const map = {};
       loadNotes().forEach(x => { map[x.id] = x; });
       remoteNotes.forEach(rn => {
-        if (!rn.shift) rn.shift = '1';
+        if (!rn.shift) rn.shift = 'pagi';
         rn.shift = normShift(rn.shift);
         const cur = map[rn.id]; if (!cur || (rn.updated_at || '') > (cur.updated_at || '')) map[rn.id] = rn; bump(rn.updated_at); });
       saveNotes(Object.values(map));
@@ -766,8 +780,9 @@ $('btnToday').addEventListener('click', () => { viewDate = todayStr(); $('viewDa
 $('viewDate').addEventListener('change', e => { if (e.target.value) { viewDate = e.target.value; renderSell(); } });
 $('payCash').addEventListener('click', () => setPay('cash'));
 $('payQris').addEventListener('click', () => setPay('qris'));
-if ($('shift1')) $('shift1').addEventListener('click', () => setShift('1'));
-if ($('shift2')) $('shift2').addEventListener('click', () => setShift('2'));
+if ($('shiftPagi')) $('shiftPagi').addEventListener('click', () => setShift('pagi'));
+if ($('shiftSiang')) $('shiftSiang').addEventListener('click', () => setShift('siang'));
+if ($('shiftLembur')) $('shiftLembur').addEventListener('click', () => setShift('lembur'));
 $('btnSave').addEventListener('click', saveManual);
 $('fQty').addEventListener('input', updSub);
 $('fPrice').addEventListener('input', updSub);
@@ -787,11 +802,11 @@ $('btnImport').addEventListener('click', importDB);
 (function init() {
   loadSettings(); migrate();
   viewDate = todayStr();
-  viewShift = '1';
+  viewShift = 'pagi';
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
-  setPay('cash'); setShift('1'); updSub();
+  setPay('cash'); setShift('pagi'); updSub();
   setSyncState(SYNC_ON ? 'offline' : 'off');
   if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
   refreshTitles();

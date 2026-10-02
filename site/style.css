@@ -88,8 +88,7 @@ input[type=date],input[type=month]{min-height:44px}
 .pay-seg button.active-qris{background:#082f49;border-color:var(--brand);color:var(--brand)}
 .shift-seg{display:flex;gap:8px;margin:10px 0}
 .shift-seg button{flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--line);background:#0e1528;color:var(--ink);font-weight:800;font-size:15px;cursor:pointer;min-height:48px}
-.shift-seg button.active-shift1{background:#052e22;border-color:var(--green);color:var(--green)}
-.shift-seg button.active-shift2{background:#082f49;border-color:var(--brand);color:var(--brand)}
+.shift-seg button.active-shift{background:#052e22;border-color:var(--green);color:var(--green)}
 .trow{display:flex;justify-content:space-between;font-size:14px;padding:2px 0}
 .trow.grand{font-size:19px;margin:6px 0}.trow.grand b{color:var(--green)}
 
