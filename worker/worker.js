@@ -32,7 +32,7 @@ function authed(req, env) {
 }
 
 const COLS = 'id,note_id,date,item,qty,price,subtotal,payment,note,updated_at,deleted';
-const NOTE_COLS = 'id,date,title,created_at,updated_at,deleted';
+const NOTE_COLS = 'id,date,title,shift,created_at,updated_at,deleted';
 const STATE_COLS = 'id,date,closed,total,cash_total,qris_total,count,closed_at,updated_at';
 const PROD_COLS = 'id,name,price,created_at,updated_at,deleted';
 
@@ -57,7 +57,15 @@ export default {
             `SELECT ${NOTE_COLS} FROM notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
           ).bind(since).all();
           notes = q.results || [];
-        } catch (e) { /* pre-notes DBs — entries still sync */ }
+        } catch (e) {
+          try {
+            // pre-shift DBs (before migrate-04): fall back without shift column.
+            const q2 = await env.DB.prepare(
+              `SELECT id,date,title,created_at,updated_at,deleted FROM notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
+            ).bind(since).all();
+            notes = (q2.results || []).map(r => ({ ...r, shift: '1' }));
+          } catch (e2) { /* pre-notes DBs — entries still sync */ }
+        }
         try {
           const s = await env.DB.prepare(
             `SELECT ${STATE_COLS} FROM note_state WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
@@ -109,14 +117,15 @@ export default {
           const nstmts = [];
           for (const x of nchanges) {
             if (!x || typeof x.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) continue;
+            const shift = String(x.shift || '1') === '2' ? '2' : '1';
             nstmts.push(env.DB.prepare(
-              `INSERT INTO notes (${NOTE_COLS}) VALUES (?,?,?,?,?,?)
+              `INSERT INTO notes (${NOTE_COLS}) VALUES (?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
-                 date=excluded.date, title=excluded.title, created_at=excluded.created_at,
+                 date=excluded.date, title=excluded.title, shift=excluded.shift, created_at=excluded.created_at,
                  updated_at=excluded.updated_at, deleted=excluded.deleted
                WHERE excluded.updated_at > notes.updated_at`
             ).bind(
-              x.id, x.date, String(x.title || 'Note').slice(0, 60),
+              x.id, x.date, String(x.title || 'Note').slice(0, 60), shift,
               String(x.created_at || new Date().toISOString()),
               String(x.updated_at || new Date().toISOString()),
               x.deleted ? 1 : 0
@@ -124,7 +133,30 @@ export default {
           }
           if (nstmts.length) await env.DB.batch(nstmts);
           notesApplied = nstmts.length;
-        } catch (e) { /* table missing on old DBs — entries already saved */ }
+        } catch (e) {
+          try {
+            // pre-shift DBs: retry without shift column so old backends keep working.
+            const nchanges = Array.isArray(body.notes) ? body.notes.slice(0, 200) : [];
+            const nstmts = [];
+            for (const x of nchanges) {
+              if (!x || typeof x.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) continue;
+              nstmts.push(env.DB.prepare(
+                `INSERT INTO notes (id,date,title,created_at,updated_at,deleted) VALUES (?,?,?,?,?,?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   date=excluded.date, title=excluded.title, created_at=excluded.created_at,
+                   updated_at=excluded.updated_at, deleted=excluded.deleted
+                 WHERE excluded.updated_at > notes.updated_at`
+              ).bind(
+                x.id, x.date, String(x.title || 'Note').slice(0, 60),
+                String(x.created_at || new Date().toISOString()),
+                String(x.updated_at || new Date().toISOString()),
+                x.deleted ? 1 : 0
+              ));
+            }
+            if (nstmts.length) await env.DB.batch(nstmts);
+            notesApplied = nstmts.length;
+          } catch (e2) { /* table missing on old DBs — entries already saved */ }
+        }
         // Per-note close-states. Newest updated_at wins per note id.
         let statesApplied = 0;
         try {

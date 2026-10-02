@@ -11,6 +11,7 @@ const SYNC_ON = typeof SYNC_URL === 'string' && SYNC_URL.startsWith('http');
 let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
 let sessionKey = sessionStorage.getItem('sn_key') || null;
 let viewDate = null;
+let viewShift = '1';
 let payMethod = 'cash';
 let editPid = null;
 
@@ -55,6 +56,14 @@ function migrate() {
   notes.forEach(n => {
     if (!n.updated_at) { n.updated_at = n.created_at || nowIso(); touchedN = true; }
     if (n.deleted === undefined) { n.deleted = 0; touchedN = true; }
+    if (!n.shift) {
+      // Backfill: infer shift from title ("shift 2" -> 2), else default to shift 1.
+      // Old single-note days become Shift 1 so they keep syncing untouched.
+      const m = String(n.title || '').toLowerCase().match(/shift\s*2|shift2|\b2\b.*shift|shift.*\b2\b/);
+      const m2 = String(n.title || '').toLowerCase().includes('shift 2') || String(n.title || '').toLowerCase().includes('shift2');
+      n.shift = (m || m2) ? '2' : '1';
+      touchedN = true;
+    }
   });
   const orphans = entries.filter(e => !e.note_id);
   if (orphans.length) {
@@ -62,7 +71,8 @@ function migrate() {
     orphans.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
     Object.keys(byDate).forEach(date => {
       let note = notes.find(n => !n.deleted && n.date === date);
-      if (!note) { note = { id: uid(), date, title: 'Kasir', created_at: nowIso(), updated_at: nowIso(), deleted: 0 }; notes.push(note); touchedN = true; }
+      if (!note) { note = { id: uid(), date, title: 'Shift 1', shift: '1', created_at: nowIso(), updated_at: nowIso(), deleted: 0 }; notes.push(note); touchedN = true; }
+      else if (!note.shift) { note.shift = '1'; touchedN = true; }
       byDate[date].forEach(e => { e.note_id = note.id; });
     });
     touchedE = true;
@@ -104,16 +114,26 @@ function seedProductsFromEntries() {
   } catch (e) {}
 }
 
-/* writable note for new sales: first open note of the date,
- * or a fresh one if all are locked (old notes keep syncing) */
-function writableNote(date) {
-  const day = loadNotes().filter(x => !x.deleted && x.date === date)
+/* writable note for new sales: one open note per date+shift,
+ * so a day holds two notes (Shift 1 / Shift 2). Old notes keep syncing. */
+function normShift(s) { return String(s || '1') === '2' ? '2' : '1'; }
+function shiftLabel(s) { return normShift(s) === '2' ? 'Shift 2' : 'Shift 1'; }
+function writableNote(date, shift) {
+  const sh = normShift(shift ?? viewShift);
+  const day = loadNotes().filter(x => !x.deleted && x.date === date && normShift(x.shift) === sh)
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const open = day.find(x => !isClosed(x.id));
-  if (open) return open;
+  if (open) {
+    // Heal old title ("Kasir") to shift title without breaking sync (bump updated_at).
+    if (open.title !== shiftLabel(sh)) {
+      const all = loadNotes();
+      const i = all.findIndex(x => x.id === open.id);
+      if (i >= 0) { all[i] = { ...all[i], title: shiftLabel(sh), shift: sh, updated_at: nowIso() }; saveNotes(all); markDirtyNote(open.id); open.title = shiftLabel(sh); }
+    }
+    return open;
+  }
   const now = nowIso();
-  const title = day.length ? ('Kasir ' + (day.length + 1)) : 'Kasir';
-  const n = { id: uid(), date, title, created_at: now, updated_at: now, deleted: 0 };
+  const n = { id: uid(), date, title: shiftLabel(sh), shift: sh, created_at: now, updated_at: now, deleted: 0 };
   const all = loadNotes(); all.push(n); saveNotes(all); markDirtyNote(n.id);
   return n;
 }
@@ -229,9 +249,11 @@ function doLogout() {
 function afterLogin() {
   loadSettings(); refreshTitles(); migrate();
   viewDate = todayStr();
+  if (!viewShift) viewShift = '1';
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
+  setShift(viewShift);
   renderAll(); syncNow();
 }
 
@@ -276,6 +298,11 @@ function setPay(p) {
   $('payCash').className = p === 'cash' ? 'active-cash' : '';
   $('payQris').className = p === 'qris' ? 'active-qris' : '';
 }
+function setShift(s) {
+  viewShift = normShift(s);
+  if ($('shift1')) $('shift1').className = viewShift === '1' ? 'active-shift1' : '';
+  if ($('shift2')) $('shift2').className = viewShift === '2' ? 'active-shift2' : '';
+}
 
 /* ---------- SELL ---------- */
 function safe(fn) { try { fn(); } catch (e) { try { console.warn(e); } catch (_) {} } }
@@ -293,6 +320,19 @@ function renderSell() {
   $('cashTotal').textContent = money(s.cash_total); $('cashCount').textContent = s.cash_count;
   $('qrisTotal').textContent = money(s.qris_total); $('qrisCount').textContent = s.qris_count;
   $('dayCount').textContent = s.count;
+  // Per-shift breakdown (Shift 1 vs Shift 2) for the viewed day.
+  try {
+    const byId = {};
+    loadNotes().forEach(n => { byId[n.id] = n; });
+    let t1 = 0, t2 = 0, c1 = 0, c2 = 0;
+    list.forEach(e => {
+      const n = byId[e.note_id];
+      if (n && normShift(n.shift) === '2') { t2 += e.subtotal; c2++; }
+      else { t1 += e.subtotal; c1++; }
+    });
+    const el = $('shiftTotals');
+    if (el) el.textContent = `☀️ Shift 1: ${money(t1)} (${c1}) · 🌙 Shift 2: ${money(t2)} (${c2})`;
+  } catch (e) {}
   renderDayList(list); loadHeader();
 }
 /* single direct-save form (merged cart + manual input) */
@@ -315,7 +355,7 @@ function saveManual() {
   if (!item) { toast('Nama barang wajib', 'err'); $('fItem').focus(); return; }
   if (!(qty > 0)) { toast('Qty harus > 0', 'err'); $('fQty').focus(); return; }
   if (!isFinite(price) || price < 0) { toast('Harga wajib (0 boleh)', 'err'); $('fPrice').focus(); return; }
-  const note = writableNote(viewDate);
+  const note = writableNote(viewDate, viewShift);
   const now = nowIso();
   const sub = Math.round(qty * price * 100) / 100;
   const id = uid();
@@ -326,7 +366,7 @@ function saveManual() {
   $('fItem').value = ''; $('fQty').value = 1; $('fPrice').value = '';
   updSub();
   renderSell(); renderStats();
-  toast(item + ' tersimpan ✓ (' + payMethod.toUpperCase() + ')', 'ok', 1500);
+  toast(item + ' tersimpan ✓ ' + shiftLabel(viewShift) + ' (' + payMethod.toUpperCase() + ')', 'ok', 1500);
   syncSoon();
   setTimeout(() => $('fItem').focus(), 50);
 }
@@ -338,7 +378,12 @@ function renderDayList(list) {
   const groups = {};
   list.forEach(e => { const k = e.note_id || ''; (groups[k] = groups[k] || []).push(e); });
   Object.keys(groups)
-    .sort((a, b) => String(byId[a] ? byId[a].created_at : '').localeCompare(String(byId[b] ? byId[b].created_at : '')))
+    .sort((a, b) => {
+      const na = byId[a], nb = byId[b];
+      const sa = na ? normShift(na.shift) : '1', sb = nb ? normShift(nb.shift) : '1';
+      if (sa !== sb) return sa.localeCompare(sb);
+      return String(na ? na.created_at : '').localeCompare(String(nb ? nb.created_at : ''));
+    })
     .forEach(nid => {
       const n = byId[nid];
       const items = groups[nid].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
@@ -346,9 +391,10 @@ function renderDayList(list) {
       const sec = document.createElement('div');
       sec.className = 'note-sec';
       const locked = nid && isClosed(nid);
+      const shiftBadge = n ? (normShift(n.shift) === '2' ? '🌙 Shift 2' : '☀️ Shift 1') : '☀️ Shift 1';
       const head = document.createElement('div');
       head.className = 'note-sec-head';
-      head.innerHTML = `<b>${locked ? '🔒' : '📝'} ${esc(n ? n.title : 'Catatan')}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
+      head.innerHTML = `<b>${locked ? '🔒' : '📝'} ${esc(n ? n.title : 'Catatan')} · ${shiftBadge}</b><span>${items.length} item · ${esc(money(s.total))}</span>`;
       if (nid && n) {
         const lb = document.createElement('button');
         lb.className = 'btn small ghost';
@@ -588,7 +634,10 @@ async function importDB() {
     list.push({ id: String(e.id || uid()), note_id: String(e.note_id || ''), date, item, qty, price, subtotal: Math.round(qty * price * 100) / 100, payment, note: '', created_at: e.created_at || stamp, updated_at: stamp, deleted: 0 });
   });
   saveEntries(list);
-  if (Array.isArray(j.notes)) saveNotes(j.notes);
+  if (Array.isArray(j.notes)) {
+    const nn = j.notes.map(n => ({ ...n, shift: normShift(n.shift || '1') }));
+    saveNotes(nn);
+  }
   if (j.states) localStorage.setItem(LS_ST, JSON.stringify(j.states));
   if (Array.isArray(j.products)) { saveProducts(j.products); localStorage.setItem(LS_DP, JSON.stringify(j.products.map(p => p.id))); }
   localStorage.removeItem(LS_MG); migrate();
@@ -674,7 +723,10 @@ async function syncNow() {
     if (remoteNotes && remoteNotes.length) {
       const map = {};
       loadNotes().forEach(x => { map[x.id] = x; });
-      remoteNotes.forEach(rn => { const cur = map[rn.id]; if (!cur || (rn.updated_at || '') > (cur.updated_at || '')) map[rn.id] = rn; bump(rn.updated_at); });
+      remoteNotes.forEach(rn => {
+        if (!rn.shift) rn.shift = '1';
+        rn.shift = normShift(rn.shift);
+        const cur = map[rn.id]; if (!cur || (rn.updated_at || '') > (cur.updated_at || '')) map[rn.id] = rn; bump(rn.updated_at); });
       saveNotes(Object.values(map));
     }
     if (remoteStates && remoteStates.length) {
@@ -714,6 +766,8 @@ $('btnToday').addEventListener('click', () => { viewDate = todayStr(); $('viewDa
 $('viewDate').addEventListener('change', e => { if (e.target.value) { viewDate = e.target.value; renderSell(); } });
 $('payCash').addEventListener('click', () => setPay('cash'));
 $('payQris').addEventListener('click', () => setPay('qris'));
+if ($('shift1')) $('shift1').addEventListener('click', () => setShift('1'));
+if ($('shift2')) $('shift2').addEventListener('click', () => setShift('2'));
 $('btnSave').addEventListener('click', saveManual);
 $('fQty').addEventListener('input', updSub);
 $('fPrice').addEventListener('input', updSub);
@@ -733,10 +787,11 @@ $('btnImport').addEventListener('click', importDB);
 (function init() {
   loadSettings(); migrate();
   viewDate = todayStr();
+  viewShift = '1';
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
-  setPay('cash'); updSub();
+  setPay('cash'); setShift('1'); updSub();
   setSyncState(SYNC_ON ? 'offline' : 'off');
   if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
   refreshTitles();
