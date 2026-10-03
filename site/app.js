@@ -316,6 +316,7 @@ function setShift(s) {
   if ($('shiftPagi')) $('shiftPagi').className = viewShift === 'pagi' ? 'active-shift' : '';
   if ($('shiftSiang')) $('shiftSiang').className = viewShift === 'siang' ? 'active-shift' : '';
   if ($('shiftLembur')) $('shiftLembur').className = viewShift === 'lembur' ? 'active-shift' : '';
+  try { if (viewDate) renderSell(); } catch (e) {}
 }
 
 /* ---------- SELL ---------- */
@@ -346,6 +347,14 @@ function renderSell() {
     });
     const el = $('shiftTotals');
     if (el) el.textContent = `☀️ Pagi: ${money(sums.pagi.t)} (${sums.pagi.c}) · 🌤️ Siang: ${money(sums.siang.t)} (${sums.siang.c}) · 🌙 Lembur: ${money(sums.lembur.t)} (${sums.lembur.c})`;
+  } catch (e) {}
+  try {
+    const hint = $('shareHint');
+    if (hint) {
+      const se = shiftEntries(viewDate || todayStr(), viewShift);
+      const ss = summarize(se);
+      hint.textContent = shiftBadge(viewShift) + ' · ' + (viewDate || todayStr()) + ' · ' + money(ss.total) + ' (' + ss.count + ' sales) — yang dibagikan hanya shift ini.';
+    }
   } catch (e) {}
   renderDayList(list); loadHeader();
 }
@@ -620,6 +629,96 @@ function loadHistory() {
 }
 
 /* ---------- backup ---------- */
+/* ---------- share per-shift report (WA text + Excel CSV) ---------- */
+function shiftEntries(date, shift) {
+  const sh = normShift(shift ?? viewShift);
+  const byId = {};
+  loadNotes().forEach(n => { byId[n.id] = n; });
+  return loadEntries()
+    .filter(e => !e.deleted && e.date === date)
+    .filter(e => normShift(byId[e.note_id] ? byId[e.note_id].shift : 'pagi') === sh)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+}
+function buildShiftReport(date, shift) {
+  const sh = normShift(shift ?? viewShift);
+  const list = shiftEntries(date, sh);
+  const s = summarize(list);
+  const shop = settings.shop_name || 'My Sales Notes';
+  const lines = [];
+  lines.push('🧾 ' + shop);
+  lines.push('📅 ' + date + ' · ' + shiftBadge(sh));
+  lines.push('💰 Total ' + money(s.total) + ' (' + s.count + ' sales)');
+  lines.push('💵 Cash ' + money(s.cash_total) + ' (' + s.cash_count + ') · 📱 QRIS ' + money(s.qris_total) + ' (' + s.qris_count + ')');
+  lines.push('');
+  if (!list.length) lines.push('Belum ada penjualan di shift ini.');
+  else {
+    lines.push('Rincian:');
+    list.forEach((e, i) => {
+      lines.push((i + 1) + '. ' + e.item + ' ' + e.qty + 'x' + money(e.price) + ' = ' + money(e.subtotal) + ' (' + (e.payment === 'qris' ? 'QRIS' : 'Cash') + ')');
+    });
+  }
+  return { list, summary: s, text: lines.join('\n') };
+}
+function csvEsc(v) {
+  const s = String(v ?? '');
+  return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function shiftCsvContent(date, shift) {
+  const sh = normShift(shift ?? viewShift);
+  const { list, summary } = buildShiftReport(date, sh);
+  const rows = [];
+  rows.push(['Tanggal', 'Shift', 'Item', 'Qty', 'Harga', 'Subtotal', 'Pembayaran'].map(csvEsc).join(','));
+  list.forEach(e => {
+    rows.push([date, shiftLabel(sh), e.item, e.qty, e.price, e.subtotal, e.payment === 'qris' ? 'QRIS' : 'Cash'].map(csvEsc).join(','));
+  });
+  rows.push('');
+  rows.push(['Ringkasan ' + date + ' ' + shiftLabel(sh), '', '', '', '', '', ''].map(csvEsc).join(','));
+  rows.push(['Total', summary.total, 'sales', summary.count, '', '', ''].map(csvEsc).join(','));
+  rows.push(['Cash', summary.cash_total, 'count', summary.cash_count, '', '', ''].map(csvEsc).join(','));
+  rows.push(['QRIS', summary.qris_total, 'count', summary.qris_count, '', '', ''].map(csvEsc).join(','));
+  return '\ufeff' + rows.join('\n');
+}
+function shiftFileName(date, shift, ext) {
+  return 'sales-' + date + '-' + normShift(shift ?? viewShift) + '.' + ext;
+}
+function downloadShiftCSV() {
+  const date = viewDate || todayStr();
+  const { list } = buildShiftReport(date, viewShift);
+  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
+  const blob = new Blob([shiftCsvContent(date, viewShift)], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = shiftFileName(date, viewShift, 'csv');
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast('Excel (CSV) shift ' + shiftLabel(viewShift) + ' diunduh ✓', 'ok');
+}
+function shareShiftWA() {
+  const date = viewDate || todayStr();
+  const { list, text } = buildShiftReport(date, viewShift);
+  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+}
+async function copyShiftReport() {
+  const date = viewDate || todayStr();
+  const { list, text } = buildShiftReport(date, viewShift);
+  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
+  try { await navigator.clipboard.writeText(text); toast('Teks laporan disalin ✓', 'ok'); }
+  catch (e) { toast('Gagal menyalin', 'err'); }
+}
+async function shareShiftFile() {
+  const date = viewDate || todayStr();
+  const { list } = buildShiftReport(date, viewShift);
+  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
+  const file = new File([shiftCsvContent(date, viewShift)], shiftFileName(date, viewShift, 'csv'), { type: 'text/csv' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'Laporan ' + shiftLabel(viewShift) + ' ' + date }); return; }
+    catch (e) { if (String(e && e.name) === 'AbortError') return; }
+  }
+  // Fallback: download + open WA with the text summary.
+  downloadShiftCSV();
+  shareShiftWA();
+}
 function exportDB() {
   const blob = new Blob([JSON.stringify({ entries: loadEntries(), notes: loadNotes(), states: loadStates(), products: loadProducts(), settings, exported_at: nowIso() }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -797,6 +896,10 @@ $('btnSaveSettings').addEventListener('click', saveSettings);
 $('btnChangeKey').addEventListener('click', changeKey);
 $('btnExport').addEventListener('click', exportDB);
 $('btnImport').addEventListener('click', importDB);
+if ($('btnShareWA')) $('btnShareWA').addEventListener('click', shareShiftWA);
+if ($('btnShareExcel')) $('btnShareExcel').addEventListener('click', downloadShiftCSV);
+if ($('btnShareFile')) $('btnShareFile').addEventListener('click', shareShiftFile);
+if ($('btnCopyReport')) $('btnCopyReport').addEventListener('click', copyShiftReport);
 
 /* ---------- init ---------- */
 (function init() {
