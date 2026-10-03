@@ -717,6 +717,25 @@ async function copyShiftReport() {
   try { await navigator.clipboard.writeText(text); toast('Teks laporan disalin ✓', 'ok'); }
   catch (e) { toast('Gagal menyalin', 'err'); }
 }
+async function sendShiftTelegram() {
+  const date = viewDate || todayStr();
+  const { list, text } = buildShiftReport(date, viewShift);
+  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
+  if (!SYNC_ON) { toast('Sync mati — Telegram butuh Worker', 'err'); return; }
+  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') { toast('Buka kunci dulu', 'err'); return; }
+  toast('Mengirim ke Telegram…', 'info', 1500);
+  try {
+    const r = await fetch(SYNC_URL + '/api/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
+      body: JSON.stringify({ date, shift: normShift(viewShift), text }),
+    });
+    if (r.status === 501) { toast('Bot Telegram belum disetel di Worker', 'err'); return; }
+    if (r.status === 401) { toast('Kunci salah', 'err'); return; }
+    if (!r.ok) throw new Error('send ' + r.status);
+    toast('Terkirim ke Telegram ✓ ' + shiftLabel(viewShift), 'ok');
+  } catch (e) { toast('Gagal kirim — cek koneksi', 'err'); }
+}
 async function shareShiftFile() {
   const date = viewDate || todayStr();
   const { list } = buildShiftReport(date, viewShift);
@@ -908,6 +927,7 @@ $('btnChangeKey').addEventListener('click', changeKey);
 $('btnExport').addEventListener('click', exportDB);
 $('btnImport').addEventListener('click', importDB);
 if ($('btnShareWA')) $('btnShareWA').addEventListener('click', shareShiftWA);
+if ($('btnShareTelegram')) $('btnShareTelegram').addEventListener('click', sendShiftTelegram);
 if ($('btnShareExcel')) $('btnShareExcel').addEventListener('click', downloadShiftCSV);
 if ($('btnShareFile')) $('btnShareFile').addEventListener('click', shareShiftFile);
 if ($('btnCopyReport')) $('btnCopyReport').addEventListener('click', copyShiftReport);

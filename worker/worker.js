@@ -219,6 +219,25 @@ export default {
         return json({ ok: true, applied: stmts.length, notesApplied, statesApplied, productsApplied });
       }
 
+      // Forward a shift report to Telegram (bot token stays server-side).
+      // Secrets (never in git): wrangler secret put TELEGRAM_BOT_TOKEN
+      //                         wrangler secret put TELEGRAM_CHAT_ID
+      if (req.method === 'POST' && url.pathname === '/api/report') {
+        const bot = env.TELEGRAM_BOT_TOKEN || '';
+        const chat = env.TELEGRAM_CHAT_ID || '';
+        if (!bot || !chat) return json({ error: 'telegram_not_configured' }, 501);
+        const body = await req.json().catch(() => ({}));
+        const text = String(body.text || '').slice(0, 4000);
+        if (!text.trim()) return json({ error: 'empty_report' }, 400);
+        const tr = await fetch('https://api.telegram.org/bot' + bot + '/sendMessage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chat, text }),
+        });
+        if (!tr.ok) return json({ error: 'telegram_send_failed' }, 502);
+        return json({ ok: true });
+      }
+
       return json({ error: 'not_found' }, 404);
     } catch (err) {
       return json({ error: 'server_error' }, 500);
