@@ -691,39 +691,66 @@ function buildShiftReport(date, shift) {
   lines.push('Disusun otomatis oleh ' + shop);
   return { list, summary: s, text: lines.join('\n') };
 }
-function csvEsc(v) {
-  const s = String(v ?? '');
-  return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-function shiftCsvContent(date, shift) {
+function shiftExcelContent(date, shift) {
+  // HTML-table .xls: Excel opens it with title, colored header, borders,
+  // and real numbers (Qty/Harga/Subtotal) so SUM() works.
   const sh = normShift(shift ?? viewShift);
   const { list, summary } = buildShiftReport(date, sh);
-  const rows = [];
-  rows.push(['Tanggal', 'Shift', 'Item', 'Qty', 'Harga', 'Subtotal', 'Pembayaran'].map(csvEsc).join(','));
-  list.forEach(e => {
-    rows.push([date, shiftLabel(sh), e.item, e.qty, e.price, e.subtotal, e.payment === 'qris' ? 'QRIS' : 'Cash'].map(csvEsc).join(','));
+  const shop = settings.shop_name || 'My Sales Notes';
+  let dateId = date;
+  try {
+    const [y, m, d] = date.split('-').map(Number);
+    dateId = new Date(y, m - 1, d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  } catch (e) {}
+  const avg = summary.count ? Math.round(summary.total / summary.count) : 0;
+  const num = 'mso-number-format:"#,##0";';
+  const th = 'background:#1F4E5F;color:#FFFFFF;font-weight:bold;text-align:center;';
+  const td = 'border:.5pt solid #B0B0B0;';
+  const right = td + 'text-align:right;' + num;
+  const center = td + 'text-align:center;';
+  let h = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">';
+  h += '<head><meta charset="UTF-8"></head><body><table border="1" cellpadding="4" cellspacing="0">';
+  h += '<tr><td colspan="6" style="font-size:16pt;font-weight:bold;">LAPORAN PENJUALAN — ' + esc(shop.toUpperCase()) + '</td></tr>';
+  h += '<tr><td colspan="6">Tanggal: ' + esc(dateId) + ' &nbsp;|&nbsp; Shift: ' + esc(shiftLabel(sh)) + '</td></tr>';
+  h += '<tr><td colspan="6"></td></tr>';
+  h += '<tr><td style="' + th + '">No</td><td style="' + th + '">Item</td><td style="' + th + '">Qty</td>'
+    + '<td style="' + th + '">Harga (Rp)</td><td style="' + th + '">Subtotal (Rp)</td><td style="' + th + '">Pembayaran</td></tr>';
+  list.forEach((e, i) => {
+    const pay = e.payment === 'qris' ? 'QRIS' : 'Tunai';
+    h += '<tr><td style="' + center + '">' + (i + 1) + '</td>'
+      + '<td style="' + td + '">' + esc(e.item) + '</td>'
+      + '<td style="' + center + '">' + e.qty + '</td>'
+      + '<td style="' + right + '">' + e.price + '</td>'
+      + '<td style="' + right + '">' + e.subtotal + '</td>'
+      + '<td style="' + center + '">' + pay + '</td></tr>';
   });
-  rows.push('');
-  rows.push(['Ringkasan ' + date + ' ' + shiftLabel(sh), '', '', '', '', '', ''].map(csvEsc).join(','));
-  rows.push(['Total', summary.total, 'sales', summary.count, '', '', ''].map(csvEsc).join(','));
-  rows.push(['Cash', summary.cash_total, 'count', summary.cash_count, '', '', ''].map(csvEsc).join(','));
-  rows.push(['QRIS', summary.qris_total, 'count', summary.qris_count, '', '', ''].map(csvEsc).join(','));
-  return '\ufeff' + rows.join('\n');
+  h += '<tr><td colspan="6"></td></tr>';
+  const sumRow = (label, val, extra) =>
+    '<tr><td colspan="4" style="' + td + 'font-weight:bold;">' + label + '</td>'
+    + '<td style="' + right + 'font-weight:bold;">' + val + '</td>'
+    + '<td style="' + td + '">' + extra + '</td></tr>';
+  h += sumRow('Total Pendapatan', summary.total, summary.count + ' transaksi');
+  h += sumRow('Tunai', summary.cash_total, summary.cash_count + ' trx');
+  h += sumRow('QRIS', summary.qris_total, summary.qris_count + ' trx');
+  h += sumRow('Rata-rata / transaksi', avg, '');
+  h += '<tr><td colspan="6">Disusun otomatis oleh ' + esc(shop) + '</td></tr>';
+  h += '</table></body></html>';
+  return h;
 }
 function shiftFileName(date, shift, ext) {
   return 'sales-' + date + '-' + normShift(shift ?? viewShift) + '.' + ext;
 }
-function downloadShiftCSV() {
+function downloadShiftExcel() {
   const date = viewDate || todayStr();
   const { list } = buildShiftReport(date, viewShift);
   if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
-  const blob = new Blob([shiftCsvContent(date, viewShift)], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob([shiftExcelContent(date, viewShift)], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = shiftFileName(date, viewShift, 'csv');
+  a.download = shiftFileName(date, viewShift, 'xls');
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  toast('Excel (CSV) shift ' + shiftLabel(viewShift) + ' diunduh ✓', 'ok');
+  toast('Excel shift ' + shiftLabel(viewShift) + ' diunduh ✓', 'ok');
 }
 async function copyShiftReport() {
   const date = viewDate || todayStr();
@@ -761,13 +788,13 @@ async function shareShiftFile() {
   const date = viewDate || todayStr();
   const { list } = buildShiftReport(date, viewShift);
   if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
-  const file = new File([shiftCsvContent(date, viewShift)], shiftFileName(date, viewShift, 'csv'), { type: 'text/csv' });
+  const file = new File([shiftExcelContent(date, viewShift)], shiftFileName(date, viewShift, 'xls'), { type: 'application/vnd.ms-excel' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Laporan ' + shiftLabel(viewShift) + ' ' + date }); return; }
     catch (e) { if (String(e && e.name) === 'AbortError') return; }
   }
-  // Fallback: download the CSV.
-  downloadShiftCSV();
+  // Fallback: download the Excel file.
+  downloadShiftExcel();
 }
 function exportDB() {
   const blob = new Blob([JSON.stringify({ entries: loadEntries(), notes: loadNotes(), states: loadStates(), products: loadProducts(), settings, exported_at: nowIso() }, null, 2)], { type: 'application/json' });
@@ -978,7 +1005,7 @@ $('btnChangeKey').addEventListener('click', changeKey);
 $('btnExport').addEventListener('click', exportDB);
 $('btnImport').addEventListener('click', importDB);
 if ($('btnShareTelegram')) $('btnShareTelegram').addEventListener('click', sendShiftTelegram);
-if ($('btnShareExcel')) $('btnShareExcel').addEventListener('click', downloadShiftCSV);
+if ($('btnShareExcel')) $('btnShareExcel').addEventListener('click', downloadShiftExcel);
 if ($('btnShareFile')) $('btnShareFile').addEventListener('click', shareShiftFile);
 if ($('btnCopyReport')) $('btnCopyReport').addEventListener('click', copyShiftReport);
 
