@@ -164,7 +164,7 @@ function closeNote(id) {
   const list = loadEntries().filter(e => !e.deleted && e.note_id === id);
   if (!list.length) { toast('Belum ada penjualan di catatan ini', 'err'); return; }
   const s = summarize(list);
-  if (!confirm(`Kunci "${n.title}" (${n.date})?\nTotal ${money(s.total)} · ${s.count} penjualan.`)) return;
+  if (!confirm(`Kunci "${n.title}" (${n.date})?\nTotal ${money(s.total)} · ${s.count} penjualan.\nLaporan otomatis dikirim ke Telegram.`)) return;
   const now = nowIso();
   const states = loadStates();
   states[id] = { date: n.date, closed: 1, total: s.total, cash_total: s.cash_total,
@@ -173,6 +173,13 @@ function closeNote(id) {
   markDirtyState(id);
   renderSell(); renderStats(); syncSoon();
   toast('Catatan dikunci 🔒 ' + money(s.total), 'ok');
+  // Auto-send the locked shift's report to Telegram (best-effort, lock already saved).
+  try {
+    const sh = normShift(n.shift);
+    postShiftReport(n.date, sh).then(ok => {
+      toast(ok ? 'Laporan ' + shiftLabel(sh) + ' terkirim otomatis ✈️' : 'Kunci tersimpan, laporan gagal terkirim', ok ? 'ok' : 'err');
+    });
+  } catch (e) {}
 }
 function reopenNote(id) {
   const states = loadStates();
@@ -725,24 +732,30 @@ async function copyShiftReport() {
   try { await navigator.clipboard.writeText(text); toast('Teks laporan disalin ✓', 'ok'); }
   catch (e) { toast('Gagal menyalin', 'err'); }
 }
-async function sendShiftTelegram() {
-  const date = viewDate || todayStr();
-  const { list, text } = buildShiftReport(date, viewShift);
-  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
-  if (!SYNC_ON) { toast('Sync mati — Telegram butuh Worker', 'err'); return; }
-  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') { toast('Buka kunci dulu', 'err'); return; }
-  toast('Mengirim ke Telegram…', 'info', 1500);
+async function postShiftReport(date, shift) {
+  // Sends via Worker proxy (bot token stays server-side). Returns true on success.
+  if (!SYNC_ON) return false;
+  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') return false;
+  if (!navigator.onLine) return false;
+  const { text } = buildShiftReport(date, shift);
   try {
     const r = await fetch(SYNC_URL + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
-      body: JSON.stringify({ date, shift: normShift(viewShift), text }),
+      body: JSON.stringify({ date, shift: normShift(shift), text }),
     });
-    if (r.status === 501) { toast('Bot Telegram belum disetel di Worker', 'err'); return; }
-    if (r.status === 401) { toast('Kunci salah', 'err'); return; }
-    if (!r.ok) throw new Error('send ' + r.status);
-    toast('Terkirim ke Telegram ✓ ' + shiftLabel(viewShift), 'ok');
-  } catch (e) { toast('Gagal kirim — cek koneksi', 'err'); }
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function sendShiftTelegram() {
+  const date = viewDate || todayStr();
+  const { list } = buildShiftReport(date, viewShift);
+  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
+  if (!SYNC_ON) { toast('Sync mati — Telegram butuh Worker', 'err'); return; }
+  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') { toast('Buka kunci dulu', 'err'); return; }
+  toast('Mengirim ke Telegram…', 'info', 1500);
+  const ok = await postShiftReport(date, viewShift);
+  toast(ok ? 'Terkirim ke Telegram ✓ ' + shiftLabel(viewShift) : 'Gagal kirim — cek koneksi / bot', ok ? 'ok' : 'err');
 }
 async function shareShiftFile() {
   const date = viewDate || todayStr();
