@@ -8,7 +8,7 @@ const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.starts
 const SYNC_URL = "__SYNC_URL__";
 const SYNC_ON = typeof SYNC_URL === 'string' && SYNC_URL.startsWith('http');
 
-let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
+let settings = { shop_name: 'My Sales Notes', currency: 'Rp', wa_number: '083114580902' };
 let sessionKey = sessionStorage.getItem('sn_key') || null;
 let viewDate = null;
 let viewShift = 'pagi';
@@ -277,10 +277,20 @@ function refreshTitles() {
   $('authShopName').textContent = settings.shop_name || 'My Sales Notes';
   document.title = (settings.shop_name || 'My Sales Notes') + ' — Kasir';
   $('sShop').value = settings.shop_name || ''; $('sCur').value = settings.currency || 'Rp';
+  if ($('sWa')) $('sWa').value = settings.wa_number || '';
+}
+function normWaNumber(raw) {
+  // 083114580902 -> 6283114580902 for wa.me links.
+  let d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('0')) d = '62' + d.slice(1);
+  else if (d.startsWith('8')) d = '62' + d;
+  return d;
 }
 function saveSettings() {
   settings.shop_name = $('sShop').value.trim() || 'My Sales Notes';
   settings.currency = $('sCur').value.trim() || 'Rp';
+  if ($('sWa')) settings.wa_number = $('sWa').value.trim();
   localStorage.setItem(LS_S, JSON.stringify(settings));
   refreshTitles(); renderAll(); toast('Tersimpan ✓', 'ok');
 }
@@ -697,7 +707,8 @@ function shareShiftWA() {
   const date = viewDate || todayStr();
   const { list, text } = buildShiftReport(date, viewShift);
   if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
-  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  const to = normWaNumber(settings.wa_number || '083114580902');
+  window.open('https://wa.me/' + to + '?text=' + encodeURIComponent(text), '_blank');
 }
 async function copyShiftReport() {
   const date = viewDate || todayStr();
