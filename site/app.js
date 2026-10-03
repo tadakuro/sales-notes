@@ -30,6 +30,7 @@ const LS_E = 'sn_entries', LS_N = 'sn_notes', LS_S = 'sn_settings', LS_P = 'sn_p
 const LS_D = 'sn_dirty', LS_DN = 'sn_dirty_notes', LS_DS = 'sn_dirty_states';
 const LS_ST = 'sn_states', LS_LP = 'sn_last_pull', LS_MG = 'sn_migrated';
 const LS_PD = 'sn_products', LS_DP = 'sn_dirty_products';
+const LS_SU = 'sn_settings_updated', LS_DSET = 'sn_dirty_settings';
 const loadEntries = () => { try { return JSON.parse(localStorage.getItem(LS_E)) || []; } catch (e) { return []; } };
 const saveEntries = l => localStorage.setItem(LS_E, JSON.stringify(l));
 const loadNotes = () => { try { return JSON.parse(localStorage.getItem(LS_N)) || []; } catch (e) { return []; } };
@@ -292,7 +293,9 @@ function saveSettings() {
   settings.currency = $('sCur').value.trim() || 'Rp';
   if ($('sWa')) settings.wa_number = $('sWa').value.trim();
   localStorage.setItem(LS_S, JSON.stringify(settings));
-  refreshTitles(); renderAll(); toast('Tersimpan ✓', 'ok');
+  localStorage.setItem(LS_SU, nowIso());
+  try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
+  refreshTitles(); renderAll(); syncSoon(); toast('Tersimpan ✓ — dikirim ke semua perangkat', 'ok');
 }
 async function changeKey() {
   if (SITE_ENFORCED) { toast('Kunci situs diatur di GitHub secret.', 'err'); return; }
@@ -794,6 +797,14 @@ async function importDB() {
     list.push({ id: String(e.id || uid()), note_id: String(e.note_id || ''), date, item, qty, price, subtotal: Math.round(qty * price * 100) / 100, payment, note: '', created_at: e.created_at || stamp, updated_at: stamp, deleted: 0 });
   });
   saveEntries(list);
+  if (j.settings && (j.settings.shop_name || j.settings.currency)) {
+    if (j.settings.shop_name) settings.shop_name = String(j.settings.shop_name).slice(0, 60);
+    if (j.settings.currency) settings.currency = String(j.settings.currency).slice(0, 10);
+    if (j.settings.wa_number !== undefined) settings.wa_number = String(j.settings.wa_number).slice(0, 20);
+    localStorage.setItem(LS_S, JSON.stringify(settings));
+    localStorage.setItem(LS_SU, nowIso());
+    try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
+  }
   if (Array.isArray(j.notes)) {
     const nn = j.notes.map(n => ({ ...n, shift: normShift(n.shift || 'pagi') }));
     saveNotes(nn);
@@ -813,7 +824,8 @@ function pendingCount() {
     return (JSON.parse(localStorage.getItem(LS_D) || '[]').length)
       + (JSON.parse(localStorage.getItem(LS_DN) || '[]').length)
       + (JSON.parse(localStorage.getItem(LS_DS) || '[]').length)
-      + (JSON.parse(localStorage.getItem(LS_DP) || '[]').length);
+      + (JSON.parse(localStorage.getItem(LS_DP) || '[]').length)
+      + (localStorage.getItem(LS_DSET) === '1' ? 1 : 0);
   } catch (e) { return 0; }
 }
 function lastOkLabel() {
@@ -844,16 +856,20 @@ async function syncNow() {
     const dirtyNotes = JSON.parse(localStorage.getItem(LS_DN) || '[]');
     const dirtyStates = JSON.parse(localStorage.getItem(LS_DS) || '[]');
     const dirtyProds = JSON.parse(localStorage.getItem(LS_DP) || '[]');
-    if (dirtyIds.length || dirtyNotes.length || dirtyStates.length || dirtyProds.length) {
+    const dirtySettings = localStorage.getItem(LS_DSET) === '1';
+    if (dirtyIds.length || dirtyNotes.length || dirtyStates.length || dirtyProds.length || dirtySettings) {
       const changes = loadEntries().filter(e => dirtyIds.includes(e.id)).slice(0, 500);
       const noteChanges = loadNotes().filter(x => dirtyNotes.includes(x.id)).slice(0, 200);
       const states = loadStates();
       const stateChanges = dirtyStates.filter(d => states[d]).map(d => ({ id: d, ...states[d] })).slice(0, 200);
       const prodChanges = loadProducts().filter(p => dirtyProds.includes(p.id)).slice(0, 200);
+      const settingsPayload = dirtySettings
+        ? { value: JSON.stringify({ shop_name: settings.shop_name, currency: settings.currency, wa_number: settings.wa_number || '' }), updated_at: localStorage.getItem(LS_SU) || nowIso() }
+        : undefined;
       const r = await fetch(SYNC_URL + '/api/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
-        body: JSON.stringify({ changes, notes: noteChanges, states: stateChanges, products: prodChanges }),
+        body: JSON.stringify({ changes, notes: noteChanges, states: stateChanges, products: prodChanges, settings: settingsPayload }),
       });
       if (r.status === 401) { setSyncState('key'); syncing = false; return; }
       if (!r.ok) throw new Error('push ' + r.status);
@@ -861,12 +877,13 @@ async function syncNow() {
       localStorage.setItem(LS_DN, JSON.stringify(dirtyNotes.filter(id => !noteChanges.some(x => x.id === id))));
       localStorage.setItem(LS_DS, JSON.stringify(dirtyStates.filter(d => !stateChanges.some(s => s.id === d))));
       localStorage.setItem(LS_DP, JSON.stringify(dirtyProds.filter(id => !prodChanges.some(p => p.id === id))));
+      if (dirtySettings) localStorage.setItem(LS_DSET, '0');
     }
     const since = localStorage.getItem(LS_LP) || '1970-01-01T00:00:00';
     const r2 = await fetch(SYNC_URL + '/api/pull?since=' + encodeURIComponent(since), { headers: { 'Authorization': 'Bearer ' + sessionKey } });
     if (r2.status === 401) { setSyncState('key'); syncing = false; return; }
     if (!r2.ok) throw new Error('pull ' + r2.status);
-    const { entries: remote, notes: remoteNotes, states: remoteStates, products: remoteProds } = await r2.json();
+    const { entries: remote, notes: remoteNotes, states: remoteStates, products: remoteProds, settings: remoteSettings } = await r2.json();
     let newest = since;
     const bump = u => { if (u > newest) newest = u; };
     if (remote && remote.length) {
@@ -900,7 +917,26 @@ async function syncNow() {
       remoteProds.forEach(rp => { const cur = map[rp.id]; if (!cur || (rp.updated_at || '') > (cur.updated_at || '')) map[rp.id] = rp; bump(rp.updated_at); });
       saveProducts(Object.values(map));
     }
-    localStorage.setItem(LS_LP, ((remote && remote.length) || (remoteNotes && remoteNotes.length) || (remoteStates && remoteStates.length) || (remoteProds && remoteProds.length)) ? newest : nowIso());
+    if (remoteSettings && remoteSettings.length) {
+      // Shop settings: newest updated_at wins (last writer wins across devices).
+      const localTs = localStorage.getItem(LS_SU) || '';
+      remoteSettings.forEach(rs => {
+        bump(rs.updated_at);
+        if ((rs.updated_at || '') > localTs) {
+          try {
+            const v = JSON.parse(rs.value || '{}');
+            if (v.shop_name) settings.shop_name = String(v.shop_name).slice(0, 60);
+            if (v.currency) settings.currency = String(v.currency).slice(0, 10);
+            if (v.wa_number !== undefined) settings.wa_number = String(v.wa_number).slice(0, 20);
+            localStorage.setItem(LS_S, JSON.stringify(settings));
+            localStorage.setItem(LS_SU, rs.updated_at);
+            localStorage.setItem(LS_DSET, '0');
+            refreshTitles();
+          } catch (e) {}
+        }
+      });
+    }
+    localStorage.setItem(LS_LP, ((remote && remote.length) || (remoteNotes && remoteNotes.length) || (remoteStates && remoteStates.length) || (remoteProds && remoteProds.length) || (remoteSettings && remoteSettings.length)) ? newest : nowIso());
     try { seedProductsFromEntries(); } catch (e) {}
     renderAll();
     localStorage.setItem(LS_OK, nowIso());

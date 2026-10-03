@@ -59,7 +59,7 @@ export default {
         const { results } = await env.DB.prepare(
           `SELECT ${COLS} FROM entries WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 2000`
         ).bind(since).all();
-        let notes = [], states = [], products = [];
+        let notes = [], states = [], products = [], shopSettings = null;
         try {
           const q = await env.DB.prepare(
             `SELECT ${NOTE_COLS} FROM notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 500`
@@ -86,7 +86,13 @@ export default {
           ).bind(since).all();
           products = p.results || [];
         } catch (e) { /* pre-products DBs — entries still sync */ }
-        return json({ entries: results || [], notes, states, products });
+        try {
+          const g = await env.DB.prepare(
+            `SELECT key, value, updated_at FROM settings WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 10`
+          ).bind(since).all();
+          shopSettings = g.results || [];
+        } catch (e) { /* pre-settings DBs — entries still sync */ }
+        return json({ entries: results || [], notes, states, products, settings: shopSettings });
       }
 
       // Push local changes. Newest updated_at wins per id, on both sides.
@@ -216,7 +222,21 @@ export default {
           if (pstmts.length) await env.DB.batch(pstmts);
           productsApplied = pstmts.length;
         } catch (e) { /* table missing on old DBs — entries already saved */ }
-        return json({ ok: true, applied: stmts.length, notesApplied, statesApplied, productsApplied });
+        // Shop settings (single global row key='shop'). Newest updated_at wins.
+        let settingsApplied = 0;
+        try {
+          const s = body.settings;
+          if (s && typeof s.updated_at === 'string' && typeof s.value === 'string') {
+            const val = s.value.slice(0, 2000);
+            await env.DB.prepare(
+              `INSERT INTO settings (key, value, updated_at) VALUES ('shop', ?, ?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+               WHERE excluded.updated_at > settings.updated_at`
+            ).bind(val, String(s.updated_at).slice(0, 30)).run();
+            settingsApplied = 1;
+          }
+        } catch (e) { /* table missing on old DBs — entries already saved */ }
+        return json({ ok: true, applied: stmts.length, notesApplied, statesApplied, productsApplied, settingsApplied });
       }
 
       // Forward a shift report to Telegram (bot token stays server-side).

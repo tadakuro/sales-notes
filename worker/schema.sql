@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS note_state (
     updated_at TEXT NOT NULL
 );
 
+-- Shop settings (shop name, currency, WA number). Single global row
+-- key='shop', last writer wins by updated_at. Synced like entries.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
 -- Quick products catalog (one-tap sell). Synced like entries.
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
