@@ -8,7 +8,7 @@ const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.starts
 const SYNC_URL = "__SYNC_URL__";
 const SYNC_ON = typeof SYNC_URL === 'string' && SYNC_URL.startsWith('http');
 
-let settings = { shop_name: 'My Sales Notes', currency: 'Rp', wa_number: '083114580902' };
+let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
 let sessionKey = sessionStorage.getItem('sn_key') || null;
 let viewDate = null;
 let viewShift = 'pagi';
@@ -283,20 +283,10 @@ function refreshTitles() {
   $('authShopName').textContent = settings.shop_name || 'My Sales Notes';
   document.title = (settings.shop_name || 'My Sales Notes') + ' — Kasir';
   $('sShop').value = settings.shop_name || ''; $('sCur').value = settings.currency || 'Rp';
-  if ($('sWa')) $('sWa').value = settings.wa_number || '';
-}
-function normWaNumber(raw) {
-  // 083114580902 -> 6283114580902 for wa.me links.
-  let d = String(raw || '').replace(/\D/g, '');
-  if (!d) return '';
-  if (d.startsWith('0')) d = '62' + d.slice(1);
-  else if (d.startsWith('8')) d = '62' + d;
-  return d;
 }
 function saveSettings() {
   settings.shop_name = $('sShop').value.trim() || 'My Sales Notes';
   settings.currency = $('sCur').value.trim() || 'Rp';
-  if ($('sWa')) settings.wa_number = $('sWa').value.trim();
   localStorage.setItem(LS_S, JSON.stringify(settings));
   localStorage.setItem(LS_SU, nowIso());
   try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
@@ -728,13 +718,6 @@ function downloadShiftCSV() {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   toast('Excel (CSV) shift ' + shiftLabel(viewShift) + ' diunduh ✓', 'ok');
 }
-function shareShiftWA() {
-  const date = viewDate || todayStr();
-  const { list, text } = buildShiftReport(date, viewShift);
-  if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
-  const to = normWaNumber(settings.wa_number || '083114580902');
-  window.open('https://wa.me/' + to + '?text=' + encodeURIComponent(text), '_blank');
-}
 async function copyShiftReport() {
   const date = viewDate || todayStr();
   const { list, text } = buildShiftReport(date, viewShift);
@@ -770,9 +753,8 @@ async function shareShiftFile() {
     try { await navigator.share({ files: [file], title: 'Laporan ' + shiftLabel(viewShift) + ' ' + date }); return; }
     catch (e) { if (String(e && e.name) === 'AbortError') return; }
   }
-  // Fallback: download + open WA with the text summary.
+  // Fallback: download the CSV.
   downloadShiftCSV();
-  shareShiftWA();
 }
 function exportDB() {
   const blob = new Blob([JSON.stringify({ entries: loadEntries(), notes: loadNotes(), states: loadStates(), products: loadProducts(), settings, exported_at: nowIso() }, null, 2)], { type: 'application/json' });
@@ -805,7 +787,6 @@ async function importDB() {
   if (j.settings && (j.settings.shop_name || j.settings.currency)) {
     if (j.settings.shop_name) settings.shop_name = String(j.settings.shop_name).slice(0, 60);
     if (j.settings.currency) settings.currency = String(j.settings.currency).slice(0, 10);
-    if (j.settings.wa_number !== undefined) settings.wa_number = String(j.settings.wa_number).slice(0, 20);
     localStorage.setItem(LS_S, JSON.stringify(settings));
     localStorage.setItem(LS_SU, nowIso());
     try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
@@ -869,7 +850,7 @@ async function syncNow() {
       const stateChanges = dirtyStates.filter(d => states[d]).map(d => ({ id: d, ...states[d] })).slice(0, 200);
       const prodChanges = loadProducts().filter(p => dirtyProds.includes(p.id)).slice(0, 200);
       const settingsPayload = dirtySettings
-        ? { value: JSON.stringify({ shop_name: settings.shop_name, currency: settings.currency, wa_number: settings.wa_number || '' }), updated_at: localStorage.getItem(LS_SU) || nowIso() }
+        ? { value: JSON.stringify({ shop_name: settings.shop_name, currency: settings.currency }), updated_at: localStorage.getItem(LS_SU) || nowIso() }
         : undefined;
       const r = await fetch(SYNC_URL + '/api/push', {
         method: 'POST',
@@ -932,7 +913,6 @@ async function syncNow() {
             const v = JSON.parse(rs.value || '{}');
             if (v.shop_name) settings.shop_name = String(v.shop_name).slice(0, 60);
             if (v.currency) settings.currency = String(v.currency).slice(0, 10);
-            if (v.wa_number !== undefined) settings.wa_number = String(v.wa_number).slice(0, 20);
             localStorage.setItem(LS_S, JSON.stringify(settings));
             localStorage.setItem(LS_SU, rs.updated_at);
             localStorage.setItem(LS_DSET, '0');
@@ -984,7 +964,6 @@ $('btnSaveSettings').addEventListener('click', saveSettings);
 $('btnChangeKey').addEventListener('click', changeKey);
 $('btnExport').addEventListener('click', exportDB);
 $('btnImport').addEventListener('click', importDB);
-if ($('btnShareWA')) $('btnShareWA').addEventListener('click', shareShiftWA);
 if ($('btnShareTelegram')) $('btnShareTelegram').addEventListener('click', sendShiftTelegram);
 if ($('btnShareExcel')) $('btnShareExcel').addEventListener('click', downloadShiftCSV);
 if ($('btnShareFile')) $('btnShareFile').addEventListener('click', shareShiftFile);
