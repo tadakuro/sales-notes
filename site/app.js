@@ -89,6 +89,11 @@ function migrate() {
   if (!localStorage.getItem(LS_PD)) saveProducts([]);
   if (!localStorage.getItem(LS_DP)) localStorage.setItem(LS_DP, '[]');
   if (!localStorage.getItem(LS_ST)) localStorage.setItem(LS_ST, '{}');
+  // One-time: push existing local shop settings so other devices adopt them.
+  if (localStorage.getItem(LS_S) && !localStorage.getItem(LS_SU)) {
+    localStorage.setItem(LS_SU, nowIso());
+    try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
+  }
   seedProductsFromEntries();
   if (!localStorage.getItem(LS_MG)) {
     localStorage.setItem(LS_D, JSON.stringify(entries.map(e => e.id)));
