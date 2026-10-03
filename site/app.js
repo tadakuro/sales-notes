@@ -654,19 +654,36 @@ function buildShiftReport(date, shift) {
   const list = shiftEntries(date, sh);
   const s = summarize(list);
   const shop = settings.shop_name || 'My Sales Notes';
+  let dateId = date;
+  try {
+    const [y, m, d] = date.split('-').map(Number);
+    dateId = new Date(y, m - 1, d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  } catch (e) {}
+  const bar = '━━━━━━━━━━━━━━━';
+  const avg = s.count ? Math.round(s.total / s.count) : 0;
   const lines = [];
-  lines.push('🧾 ' + shop);
-  lines.push('📅 ' + date + ' · ' + shiftBadge(sh));
-  lines.push('💰 Total ' + money(s.total) + ' (' + s.count + ' sales)');
-  lines.push('💵 Cash ' + money(s.cash_total) + ' (' + s.cash_count + ') · 📱 QRIS ' + money(s.qris_total) + ' (' + s.qris_count + ')');
+  lines.push('*LAPORAN PENJUALAN — ' + shop.toUpperCase() + '*');
+  lines.push(bar);
+  lines.push('Tanggal : ' + dateId);
+  lines.push('Shift   : ' + shiftLabel(sh));
+  lines.push(bar);
+  lines.push('*Total Pendapatan : ' + money(s.total) + '*');
+  lines.push('Total Transaksi  : ' + s.count + ' transaksi');
+  lines.push('Rata-rata/transaksi : ' + money(avg));
   lines.push('');
-  if (!list.length) lines.push('Belum ada penjualan di shift ini.');
+  lines.push('Tunai : ' + money(s.cash_total) + ' (' + s.cash_count + ' trx)');
+  lines.push('QRIS  : ' + money(s.qris_total) + ' (' + s.qris_count + ' trx)');
+  lines.push(bar);
+  if (!list.length) lines.push('Belum ada transaksi pada shift ini.');
   else {
-    lines.push('Rincian:');
+    lines.push('*Rincian Transaksi*');
     list.forEach((e, i) => {
-      lines.push((i + 1) + '. ' + e.item + ' ' + e.qty + 'x' + money(e.price) + ' = ' + money(e.subtotal) + ' (' + (e.payment === 'qris' ? 'QRIS' : 'Cash') + ')');
+      const pay = e.payment === 'qris' ? 'QRIS' : 'Tunai';
+      lines.push((i + 1) + '. ' + e.item + ' — ' + e.qty + ' x ' + money(e.price) + ' = *' + money(e.subtotal) + '* (' + pay + ')');
     });
   }
+  lines.push(bar);
+  lines.push('Disusun otomatis oleh ' + shop);
   return { list, summary: s, text: lines.join('\n') };
 }
 function csvEsc(v) {
