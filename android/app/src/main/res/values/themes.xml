@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Framework theme only: no AppCompat dependency needed. -->
+    <style name="Theme.SalesNotes" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/brand_dark</item>
+        <item name="android:statusBarColor">@color/brand_dark</item>
+        <item name="android:navigationBarColor">@color/brand_dark</item>
+    </style>
+</resources>

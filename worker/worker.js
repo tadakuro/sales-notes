@@ -5,8 +5,11 @@
  */
 const ORIGIN = 'https://tadakuro.github.io';
 
+// NOTE: '*' (not the Pages origin) so the Android APK build — which serves
+// the same site from file:///android_asset — can call /api/* too. Auth still
+// requires the SITE_KEY bearer token; CORS alone never grants access.
 const CORS = {
-  'Access-Control-Allow-Origin': ORIGIN,
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400',
@@ -242,6 +245,7 @@ export default {
       // Forward a shift report to Telegram (bot token stays server-side).
       // Secrets (never in git): wrangler secret put TELEGRAM_BOT_TOKEN
       //                         wrangler secret put TELEGRAM_CHAT_ID
+      // Client sends pre-formatted HTML (parse_mode HTML) for a professional look.
       if (req.method === 'POST' && url.pathname === '/api/report') {
         const bot = env.TELEGRAM_BOT_TOKEN || '';
         const chat = env.TELEGRAM_CHAT_ID || '';
@@ -249,10 +253,13 @@ export default {
         const body = await req.json().catch(() => ({}));
         const text = String(body.text || '').slice(0, 4000);
         if (!text.trim()) return json({ error: 'empty_report' }, 400);
+        const pm = String(body.parse_mode || 'HTML');
+        const parse_mode = pm === 'HTML' || pm === 'MarkdownV2' || pm === 'Markdown' ? pm : 'HTML';
+        const payload = { chat_id: chat, text, parse_mode, disable_web_page_preview: true };
         const tr = await fetch('https://api.telegram.org/bot' + bot + '/sendMessage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chat, text }),
+          body: JSON.stringify(payload),
         });
         if (!tr.ok) return json({ error: 'telegram_send_failed' }, 502);
         return json({ ok: true });

@@ -654,42 +654,94 @@ function shiftEntries(date, shift) {
     .filter(e => normShift(byId[e.note_id] ? byId[e.note_id].shift : 'pagi') === sh)
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 }
+function fmtDateId(date) {
+  try {
+    const [y, m, d] = date.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  } catch (e) { return date; }
+}
+function fmtTimeShort(d) {
+  try {
+    return new Date(d).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+  } catch (e) { return ''; }
+}
 function buildShiftReport(date, shift) {
+  // Plain-text version: used for Copy / file fallback. Clean, no markdown symbols.
   const sh = normShift(shift ?? viewShift);
   const list = shiftEntries(date, sh);
   const s = summarize(list);
   const shop = settings.shop_name || 'My Sales Notes';
-  let dateId = date;
-  try {
-    const [y, m, d] = date.split('-').map(Number);
-    dateId = new Date(y, m - 1, d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  } catch (e) {}
-  const bar = '━━━━━━━━━━━━━━━';
+  const dateId = fmtDateId(date);
   const avg = s.count ? Math.round(s.total / s.count) : 0;
+  const cashPct = s.total ? Math.round(s.cash_total / s.total * 100) : 0;
+  const qrisPct = s.total ? Math.round(s.qris_total / s.total * 100) : 0;
+  const bar = '━━━━━━━━━━━━━━';
   const lines = [];
-  lines.push('*LAPORAN PENJUALAN — ' + shop.toUpperCase() + '*');
+  lines.push('LAPORAN PENJUALAN — ' + shop.toUpperCase());
   lines.push(bar);
   lines.push('Tanggal : ' + dateId);
-  lines.push('Shift   : ' + shiftLabel(sh));
+  lines.push('Shift   : ' + shiftBadge(sh));
   lines.push(bar);
-  lines.push('*Total Pendapatan : ' + money(s.total) + '*');
-  lines.push('Total Transaksi  : ' + s.count + ' transaksi');
-  lines.push('Rata-rata/transaksi : ' + money(avg));
-  lines.push('');
-  lines.push('Tunai : ' + money(s.cash_total) + ' (' + s.cash_count + ' trx)');
-  lines.push('QRIS  : ' + money(s.qris_total) + ' (' + s.qris_count + ' trx)');
+  lines.push('Total Pendapatan : ' + money(s.total));
+  lines.push('Transaksi : ' + s.count + 'x  |  Rata-rata : ' + money(avg));
+  lines.push('Tunai : ' + money(s.cash_total) + ' (' + s.cash_count + 'x, ' + cashPct + '%)');
+  lines.push('QRIS  : ' + money(s.qris_total) + ' (' + s.qris_count + 'x, ' + qrisPct + '%)');
   lines.push(bar);
   if (!list.length) lines.push('Belum ada transaksi pada shift ini.');
   else {
-    lines.push('*Rincian Transaksi*');
+    lines.push('Rincian Transaksi (' + list.length + ') :');
     list.forEach((e, i) => {
       const pay = e.payment === 'qris' ? 'QRIS' : 'Tunai';
-      lines.push((i + 1) + '. ' + e.item + ' — ' + e.qty + ' x ' + money(e.price) + ' = *' + money(e.subtotal) + '* (' + pay + ')');
+      lines.push((i + 1) + '. ' + e.item + ' — ' + e.qty + ' x ' + money(e.price) + ' = ' + money(e.subtotal) + ' [' + pay + ']');
     });
   }
   lines.push(bar);
-  lines.push('Disusun otomatis oleh ' + shop);
+  lines.push('Disusun otomatis • ' + shop + ' • ' + fmtTimeShort(new Date()));
   return { list, summary: s, text: lines.join('\n') };
+}
+function buildShiftReportHtml(date, shift) {
+  // Rich version for Telegram (parse_mode HTML). Proper <b>/<i>, escaped, truncated safely.
+  const sh = normShift(shift ?? viewShift);
+  const list = shiftEntries(date, sh);
+  const s = summarize(list);
+  const shop = settings.shop_name || 'My Sales Notes';
+  const shopEsc = esc(shop);
+  const shopUpEsc = esc(shop.toUpperCase());
+  const dateId = esc(fmtDateId(date));
+  const avg = s.count ? Math.round(s.total / s.count) : 0;
+  const cashPct = s.total ? Math.round(s.cash_total / s.total * 100) : 0;
+  const qrisPct = s.total ? Math.round(s.qris_total / s.total * 100) : 0;
+  const bar = '━━━━━━━━━━━━━━';
+  const L = [];
+  L.push('🧾 <b>LAPORAN PENJUALAN</b>');
+  L.push('<b>' + shopUpEsc + '</b>');
+  L.push(bar);
+  L.push('📅 ' + dateId);
+  L.push('⏰ Shift: <b>' + esc(shiftBadge(sh)) + '</b>');
+  L.push(bar);
+  L.push('💰 Total Pendapatan');
+  L.push('<b>' + esc(money(s.total)) + '</b>  •  ' + s.count + ' transaksi');
+  L.push('Rata-rata: ' + esc(money(avg)) + ' / transaksi');
+  L.push('');
+  L.push('💵 Tunai: <b>' + esc(money(s.cash_total)) + '</b> (' + s.cash_count + 'x, ' + cashPct + '%)');
+  L.push('📱 QRIS: <b>' + esc(money(s.qris_total)) + '</b> (' + s.qris_count + 'x, ' + qrisPct + '%)');
+  L.push(bar);
+  if (!list.length) {
+    L.push('<i>Belum ada transaksi pada shift ini.</i>');
+  } else {
+    L.push('🧾 <b>Rincian Transaksi (' + list.length + ')</b>');
+    const MAX_ITEMS = 60;
+    const shown = list.slice(0, MAX_ITEMS);
+    shown.forEach((e, i) => {
+      const payIcon = e.payment === 'qris' ? '📱' : '💵';
+      L.push('<b>' + (i + 1) + '.</b> ' + esc(e.item));
+      L.push('   ' + e.qty + ' × ' + esc(money(e.price)) + ' = <b>' + esc(money(e.subtotal)) + '</b>  ' + payIcon);
+    });
+    if (list.length > MAX_ITEMS) L.push('<i>… +' + (list.length - MAX_ITEMS) + ' transaksi lainnya (lihat Excel)</i>');
+  }
+  L.push(bar);
+  L.push('<i>Disusun otomatis • ' + shopEsc + ' • ' + esc(fmtTimeShort(new Date())) + '</i>');
+  return { list, summary: s, html: L.join('\n') };
 }
 function shiftExcelContent(date, shift) {
   // HTML-table .xls: Excel opens it with title, colored header, borders,
@@ -761,15 +813,16 @@ async function copyShiftReport() {
 }
 async function postShiftReport(date, shift) {
   // Sends via Worker proxy (bot token stays server-side). Returns true on success.
+  // Uses rich HTML formatting so Telegram renders bold/italic properly.
   if (!SYNC_ON) return false;
   if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') return false;
   if (!navigator.onLine) return false;
-  const { text } = buildShiftReport(date, shift);
+  const { html } = buildShiftReportHtml(date, shift);
   try {
     const r = await fetch(SYNC_URL + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
-      body: JSON.stringify({ date, shift: normShift(shift), text }),
+      body: JSON.stringify({ date, shift: normShift(shift), text: html, parse_mode: 'HTML' }),
     });
     return r.ok;
   } catch (e) { return false; }

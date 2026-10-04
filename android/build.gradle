@@ -1,0 +1,5 @@
+// Top-level build file. AGP version is the only plugin we need
+// (pure framework WebView app, zero external dependencies).
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

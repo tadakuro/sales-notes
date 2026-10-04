@@ -57,6 +57,14 @@ Pushes redeploy the site automatically (~1 min).
 Pages source = **GitHub Actions** (workflow `.github/workflows/deploy-pages.yml` builds `site/` → deploys).
 Just push to `main` — the site updates automatically in ~1 minute.
 
+## Android APK
+Same `site/` wrapped in an offline WebView (`android/`), built by CI:
+- every `main` push → verification build (APK in the run's Artifacts)
+- **Releases**: Actions → `Build APK` → `Run workflow` → fill `release_tag`
+  (e.g. `v1.0.0`) → APK published at repo → Releases
+- sideload on Android 7.0+, same site key as the web version; Export JSON/Excel
+  saves to Downloads, Import reads JSON backup.
+
 ## Optional: local Python backend
 `app.py` + `static/` is the older version with a real server + SQLite
 (`python3 app.py --no-browser` → http://localhost:8000). The live

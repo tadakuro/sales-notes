@@ -1,0 +1,37 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.tadakuro.salesnotes'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'io.github.tadakuro.salesnotes'
+        minSdk 24
+        targetSdk 34
+        // Injected from CI:  -PversionCode=<run_number> -PversionName=<tag>
+        versionCode ((project.findProperty('versionCode') ?: '1') as String).toInteger()
+        versionName ((project.findProperty('versionName') ?: '1.0.0-dev') as String)
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+        }
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}

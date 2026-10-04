@@ -8,3 +8,9 @@ build/
 *.spec
 
 .wrangler/
+
+# Android / APK (generated at CI build time)
+*.apk
+*.aab
+android/.gradle/
+android/app/src/main/assets/www/

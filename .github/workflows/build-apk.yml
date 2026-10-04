@@ -1,0 +1,126 @@
+name: Build APK
+
+# Verification build on every main push touching the app;
+# use "Run workflow" with a tag to publish the APK to Releases.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'android/**'
+      - 'worker/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish APK to Releases under this tag (e.g. v1.0.0). Empty = build only.'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark the GitHub Release as pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      APK_NAME: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install platform + build-tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Prepare WebView assets (same injection as Pages)
+        env:
+          SITE_KEY: ${{ secrets.SITE_KEY }}
+          SYNC_URL: ${{ secrets.SYNC_URL }}
+        run: |
+          set -e
+          TAG="${{ inputs.release_tag }}"
+          if [ -n "$TAG" ]; then VER="${TAG#v}"; else VER="dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "VERSION_NAME=$VER" >> "$GITHUB_ENV"
+          rm -rf android/app/src/main/assets/www
+          mkdir -p android/app/src/main/assets/www
+          cp site/index.html site/app.js site/style.css android/app/src/main/assets/www/
+          cd android/app/src/main/assets/www
+          # Local files: drop cache-buster queries (asset loader has no query support).
+          sed -i 's|style.css?v=__BUILD_ID__|style.css|; s|app.js?v=__BUILD_ID__|app.js|' index.html
+          if grep -q "__BUILD_ID__" index.html; then echo "build id strip failed"; exit 1; fi
+          # Same site-key hash + sync URL as the Pages deploy, so the APK behaves
+          # exactly like the live site (key gate + Telegram + sync). Without the
+          # secrets it stays in offline, unlocked mode instead of failing.
+          if [ -n "$SITE_KEY" ]; then
+            HASH=$(printf '%s' "sn::$SITE_KEY" | sha256sum | cut -d' ' -f1)
+            sed -i "s/__SITE_KEY_HASH__/$HASH/" app.js
+          else
+            echo "WARNING: SITE_KEY secret not set — APK will be unlocked/offline-only"
+          fi
+          URL_ESC=$(printf '%s' "${SYNC_URL:-}" | sed 's/[&|]/\\&/g')
+          sed -i "s|__SYNC_URL__|${URL_ESC}|g" app.js
+          if grep -q "__SYNC_URL__" app.js; then echo "sync url injection failed"; exit 1; fi
+          echo "assets ready (version $VER)"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        working-directory: android
+        run: gradle :app:assembleDebug -PversionCode="$GITHUB_RUN_NUMBER" -PversionName="$VERSION_NAME" --stacktrace
+
+      - name: Rename APK
+        run: |
+          TAG="${{ inputs.release_tag }}"
+          if [ -n "$TAG" ]; then NAME="sales-notes-${TAG}.apk"; else NAME="sales-notes-dev-r${GITHUB_RUN_NUMBER}.apk"; fi
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$NAME"
+          echo "APK_NAME=$NAME" >> "$GITHUB_ENV"
+          ls -lh "$NAME"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}
+
+      - name: Publish to Release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.release_tag }}"
+          NOTES="## Sales Notes ${TAG}
+          Android wrapper around the same \`site/\` that powers https://tadakuro.github.io/sales-notes/ (offline-first, same site key, sync + Telegram reports included).
+          ### Isi
+          - 3 shift (Pagi / Siang / Lembur), Cash vs QRIS, statistik + riwayat
+          - Laporan Telegram format profesional + Excel (.xls) + share file
+          - Sinkron multi-perangkat via Cloudflare Worker + D1
+          ### Install
+          1. Download \`${APK_NAME}\` di bawah, buka di HP Android (min Android 7.0)
+          2. Izinkan *Install unknown apps* saat diminta
+          3. Masukkan site key yang sama seperti versi web
+          > APK ini debug-signed (cukup untuk sideload pribadi). Data tersimpan lokal di HP, tidak dikirim ke mana-mana kecuali sync ke Worker milikmu.
+          "
+          if [ "${{ inputs.prerelease }}" = "true" ]; then PRE="--prerelease"; else PRE=""; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_NAME" --clobber
+          else
+            # shellcheck disable=SC2086
+            gh release create "$TAG" "$APK_NAME" --title "Sales Notes $TAG" --notes "$NOTES" $PRE
+          fi
