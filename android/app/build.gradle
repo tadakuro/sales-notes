@@ -11,8 +11,8 @@ android {
         minSdk 24
         targetSdk 34
         // Injected from CI:  -PversionCode=<run_number> -PversionName=<tag>
-        versionCode ((project.findProperty('versionCode') ?: '1') as String).toInteger()
-        versionName ((project.findProperty('versionName') ?: '1.0.0-dev') as String)
+        versionCode providers.gradleProperty('versionCode').getOrElse('1').toInteger()
+        versionName providers.gradleProperty('versionName').getOrElse('1.0.0-dev')
     }
 
     buildTypes {
