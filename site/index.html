@@ -169,11 +169,21 @@
       <button id="btnSaveSettings" class="btn primary">Simpan</button>
     </div>
     <div class="card">
-      <h2>🔑 Kunci</h2>
+      <h2>⏰ Shift aktif</h2>
+      <p class="muted small">Matikan shift yang tidak dipakai — tombolnya hilang dari form Jual. Minimal 1 shift aktif. Data lama tetap tersimpan.</p>
+      <div class="shift-seg" id="shiftToggles">
+        <button id="shiftTg_pagi" class="on" type="button">☀️ Pagi</button>
+        <button id="shiftTg_siang" class="on" type="button">🌤️ Siang</button>
+        <button id="shiftTg_lembur" class="on" type="button">🌙 Lembur</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>👤 Akun</h2>
+      <p class="muted small" id="acctLine"></p>
       <p class="muted small" id="keyModeHint">Kunci perangkat ini.</p>
-      <label class="lbl">Kunci lama<input id="kOld" type="password" placeholder="saat ini"></label>
-      <label class="lbl">Kunci baru (min 4)<input id="kNew" type="password" placeholder="baru"></label>
-      <button id="btnChangeKey" class="btn">Ganti kunci</button>
+      <label class="lbl">Password lama<input id="kOld" type="password" placeholder="saat ini"></label>
+      <label class="lbl">Password baru (min 4)<input id="kNew" type="password" placeholder="baru"></label>
+      <button id="btnChangeKey" class="btn">Ganti password</button>
       <hr class="sep">
       <h2>🔄 Backup</h2>
       <button id="btnExport" class="btn">⬇ Export JSON</button>
@@ -182,7 +192,7 @@
         <button id="btnImport" class="btn">⬆ Import</button>
       </div>
       <hr class="sep">
-      <button id="btnLogout" class="btn ghost">🔒 Kunci aplikasi</button>
+      <button id="btnLogout" class="btn ghost">🚪 Keluar akun</button>
     </div>
   </section>
 </main>
@@ -202,6 +212,17 @@
     <div class="auth-logo">🧾</div>
     <h2 id="authShopName">My Sales Notes</h2>
     <p class="muted" id="authHint">Enter your access key.</p>
+    <div id="authAcctPane" class="stack hidden">
+      <div class="auth-tabs">
+        <button id="authTabLogin" class="active-tab" type="button">Masuk</button>
+        <button id="authTabReg" type="button">Daftar</button>
+      </div>
+      <div id="authChips" class="chips hidden"></div>
+      <label class="lbl">Username<input id="authUser" placeholder="mis. toko-berkah" autocomplete="username"></label>
+      <label class="lbl">Password<input id="authPass" type="password" placeholder="min. 4 karakter" autocomplete="current-password"></label>
+      <button id="btnAuthGo" class="btn primary big">Masuk</button>
+      <p class="muted small">Setiap akun punya panel catatan sendiri — tidak tercampur akun lain.</p>
+    </div>
     <div id="authSetupPane" class="stack hidden">
       <label class="lbl">Buat kunci (min 4)<input id="setupKey" type="password"></label>
       <label class="lbl">Ulangi<input id="setupKey2" type="password"></label>

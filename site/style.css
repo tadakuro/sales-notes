@@ -154,3 +154,10 @@ tr:last-child td{border-bottom:none}
 .auth-card p{text-align:center;font-size:13px}
 .stack{display:flex;flex-direction:column;gap:4px}
 .auth-err{background:var(--red-bg);color:var(--red);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;margin-top:10px}
+.auth-tabs{display:flex;gap:8px;margin:6px 0 2px}
+.auth-tabs button{flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--line);background:#0e1528;color:var(--ink);font-weight:800;font-size:15px;cursor:pointer}
+.auth-tabs button.active-tab{background:#082f49;border-color:var(--brand);color:var(--brand)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.chip{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:#0e1528;color:var(--ink);font-size:13px;font-weight:700;cursor:pointer}
+.shift-seg button.on{background:#052e22;border-color:var(--green);color:var(--green)}
+.shift-seg button.off{opacity:.45;filter:grayscale(1)}

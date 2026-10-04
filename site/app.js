@@ -8,8 +8,37 @@ const SITE_ENFORCED = typeof SITE_KEY_HASH === 'string' && !SITE_KEY_HASH.starts
 const SYNC_URL = "__SYNC_URL__";
 const SYNC_ON = typeof SYNC_URL === 'string' && SYNC_URL.startsWith('http');
 
-let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
-let sessionKey = sessionStorage.getItem('sn_key') || null;
+let settings = { shop_name: 'My Sales Notes', currency: 'Rp', shifts: { pagi: true, siang: true, lembur: true } };
+let sessionKey = sessionStorage.getItem('sn_key') || null; // legacy site-key mode only
+
+/* ---------- accounts (multi-user; one isolated panel per account) ----------
+ * Legacy mode (uid '') uses the exact same unprefixed keys as before, so old
+ * data keeps working. Each registered account gets its own prefixed namespace,
+ * both locally and in D1 (account_id), so panels never cross.
+ */
+let ACC = { uid: '', username: '', token: '' };
+const LS_ACCTS = 'sn_accounts'; // {uid:{username,token,verifier}} — this device's accounts
+const LS_CUR = 'sn_current';    // current uid ('' = legacy site-key mode)
+const LS_SUP = 'sn_acct_support'; // cached '0' when the Worker predates accounts
+function accountsMode() {
+  if (!SYNC_ON) return false;
+  try { return localStorage.getItem(LS_SUP) !== '0'; } catch (e) { return true; }
+}
+async function probeAccounts() {
+  if (!SYNC_ON || !navigator.onLine) return accountsMode();
+  try {
+    const h = await (await fetch(SYNC_URL + '/api/health')).json();
+    localStorage.setItem(LS_SUP, h && h.accounts ? '1' : '0');
+  } catch (e) { /* keep cached value / default */ }
+  return accountsMode();
+}
+function loadAccts() { try { return JSON.parse(localStorage.getItem(LS_ACCTS)) || {}; } catch (e) { return {}; } }
+function saveAccts(a) { try { localStorage.setItem(LS_ACCTS, JSON.stringify(a)); } catch (e) {} }
+function authToken() { return ACC.token || sessionKey; }
+function authed() {
+  if (ACC.token) return true;
+  return !!sessionKey && sessionStorage.getItem('sn_unlocked') === '1';
+}
 let viewDate = null;
 let viewShift = 'pagi';
 let payMethod = 'cash';
@@ -25,12 +54,22 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const nowIso = () => new Date().toISOString();
 
-/* ---------- storage ---------- */
-const LS_E = 'sn_entries', LS_N = 'sn_notes', LS_S = 'sn_settings', LS_P = 'sn_pin';
-const LS_D = 'sn_dirty', LS_DN = 'sn_dirty_notes', LS_DS = 'sn_dirty_states';
-const LS_ST = 'sn_states', LS_LP = 'sn_last_pull', LS_MG = 'sn_migrated';
-const LS_PD = 'sn_products', LS_DP = 'sn_dirty_products';
-const LS_SU = 'sn_settings_updated', LS_DSET = 'sn_dirty_settings';
+/* ---------- storage (namespaced per account) ---------- */
+let LS_E = 'sn_entries', LS_N = 'sn_notes', LS_S = 'sn_settings', LS_P = 'sn_pin';
+let LS_D = 'sn_dirty', LS_DN = 'sn_dirty_notes', LS_DS = 'sn_dirty_states';
+let LS_ST = 'sn_states', LS_LP = 'sn_last_pull', LS_MG = 'sn_migrated';
+let LS_PD = 'sn_products', LS_DP = 'sn_dirty_products';
+let LS_SU = 'sn_settings_updated', LS_DSET = 'sn_dirty_settings';
+function setNs(uid) {
+  // '' (legacy) reproduces the exact historical keys; accounts get sn_<uid>_*.
+  const p = uid ? 'sn_' + uid + '_' : 'sn_';
+  LS_E = p + 'entries'; LS_N = p + 'notes'; LS_S = p + 'settings';
+  LS_D = p + 'dirty'; LS_DN = p + 'dirty_notes'; LS_DS = p + 'dirty_states';
+  LS_ST = p + 'states'; LS_LP = p + 'last_pull'; LS_MG = p + 'migrated';
+  LS_PD = p + 'products'; LS_DP = p + 'dirty_products';
+  LS_SU = p + 'settings_updated'; LS_DSET = p + 'dirty_settings';
+  // LS_P (legacy device PIN) intentionally stays global — legacy mode only.
+}
 const loadEntries = () => { try { return JSON.parse(localStorage.getItem(LS_E)) || []; } catch (e) { return []; } };
 const saveEntries = l => localStorage.setItem(LS_E, JSON.stringify(l));
 const loadNotes = () => { try { return JSON.parse(localStorage.getItem(LS_N)) || []; } catch (e) { return []; } };
@@ -231,22 +270,132 @@ async function hashPin(pin) {
 function authErr(m) { const e = $('authErr'); if (!m) { e.classList.add('hidden'); e.textContent = ''; return; } e.textContent = m; e.classList.remove('hidden'); }
 function showAuth() { $('authScreen').classList.remove('hidden'); }
 function hideAuth() { $('authScreen').classList.add('hidden'); authErr(null); }
-function checkGate() {
+/* ---------- auth gate (accounts, with legacy key fallback) ---------- */
+let authMode = 'login'; // 'login' | 'register' — account pane tab
+function setAuthMode(m) {
+  authMode = m;
+  $('authTabLogin').className = m === 'login' ? 'active-tab' : '';
+  $('authTabReg').className = m === 'register' ? 'active-tab' : '';
+  $('btnAuthGo').textContent = m === 'register' ? 'Daftar + buka' : 'Masuk';
+  authErr(null);
+}
+function renderAcctChips() {
+  const box = $('authChips');
+  if (!box) return;
+  box.innerHTML = '';
+  Object.values(loadAccts()).forEach(a => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button'; b.textContent = a.username;
+    b.addEventListener('click', () => { $('authUser').value = a.username; $('authPass').focus(); });
+    box.appendChild(b);
+  });
+  box.classList.toggle('hidden', !box.children.length);
+}
+async function checkGate() {
   const saved = loadSettings();
   $('shopTitle').textContent = saved.shop_name;
   $('authShopName').textContent = saved.shop_name;
+  await probeAccounts();
+  const legacy = $('authSetupPane'), login = $('authLoginPane'), acct = $('authAcctPane');
+  if (accountsMode()) {
+    legacy.classList.add('hidden'); login.classList.add('hidden'); acct.classList.remove('hidden');
+    $('authHint').textContent = 'Masuk untuk membuka panel tokomu — setiap akun punya catatan sendiri.';
+    renderAcctChips(); setAuthMode(authMode); refreshTitles();
+    if (ACC.token) { hideAuth(); afterLogin(true); syncNow(); return; }
+    showAuth(); return;
+  }
+  // Legacy path: old Worker (no accounts) or offline-only build.
+  // Legacy mode always uses the shared unprefixed store.
+  ACC = { uid: '', username: '', token: '' }; setNs('');
+  loadSettings(); refreshTitles();
+  if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
+  acct.classList.add('hidden');
   if (SITE_ENFORCED) {
-    $('authSetupPane').classList.add('hidden'); $('authLoginPane').classList.remove('hidden');
+    legacy.classList.add('hidden'); login.classList.remove('hidden');
     $('authHint').textContent = 'Toko ini dikunci — masukkan kunci situs.';
     if (sessionStorage.getItem('sn_unlocked') === '1') { hideAuth(); afterLogin(); return; }
     showAuth(); return;
   }
   if (!localStorage.getItem(LS_P)) {
-    $('authSetupPane').classList.remove('hidden'); $('authLoginPane').classList.add('hidden');
+    legacy.classList.remove('hidden'); login.classList.add('hidden');
     $('authHint').textContent = 'Baru pertama kali? Buat satu kunci privat.';
   } else if (sessionStorage.getItem('sn_unlocked') === '1') { hideAuth(); afterLogin(); return; }
-  else { $('authSetupPane').classList.add('hidden'); $('authLoginPane').classList.remove('hidden'); }
+  else { legacy.classList.add('hidden'); login.classList.remove('hidden'); }
   showAuth();
+}
+function validUsernameLoose(u) { return /^[a-z0-9][a-z0-9_.-]{2,19}$/i.test(String(u || '').trim()); }
+async function doAccountAuth() {
+  const u = $('authUser').value.trim(), p = $('authPass').value;
+  if (!validUsernameLoose(u)) { authErr('Username 3–20 karakter (huruf/angka/_ . -).'); return; }
+  if (!p || p.length < 4) { authErr('Password min. 4 karakter.'); return; }
+  if (!SYNC_ON) { authErr('Sync mati — akun butuh koneksi Worker.'); return; }
+  const endpoint = authMode === 'register' ? '/api/register' : '/api/login';
+  toast(authMode === 'register' ? 'Mendaftar…' : 'Masuk…', 'info', 1500);
+  let r, j = {};
+  try {
+    r = await fetch(SYNC_URL + endpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p }),
+    });
+    j = await r.json().catch(() => ({}));
+  } catch (e) {
+    if (await unlockOffline(u, p)) return; // remembered account, offline unlock
+    authErr('Offline — tidak ada koneksi ke server.'); return;
+  }
+  if (!r.ok || !j.ok) {
+    const map = { username_taken: 'Username sudah dipakai orang lain.', invalid_login: 'Username / password salah.', bad_username: 'Username tidak valid.', bad_password: 'Password min. 4 karakter.', rate_limited: 'Terlalu sering — coba lagi nanti.' };
+    authErr(map[j.error] || ('Gagal (' + r.status + ').')); return;
+  }
+  await enterAccount(j.account.id, j.account.username, j.token, p);
+  toast((authMode === 'register' ? 'Akun dibuat ✓ Selamat datang, ' : 'Selamat datang, ') + j.account.username, 'ok');
+}
+async function unlockOffline(u, p) {
+  // No connection: unlock with this device's remembered password verifier.
+  const hit = Object.entries(loadAccts()).find(([, a]) => String(a.username).toLowerCase() === u.toLowerCase());
+  if (!hit || !hit[1].verifier || !hit[1].token) return false;
+  if ((await hashPin(p)) !== hit[1].verifier) { authErr('Password salah (offline).'); return true; }
+  await enterAccount(hit[0], hit[1].username, hit[1].token, null, true);
+  toast('Dibuka offline ✓ ' + hit[1].username, 'ok');
+  return true;
+}
+async function enterAccount(uid, username, token, password, offline) {
+  ACC = { uid, username, token };
+  try { localStorage.setItem(LS_CUR, uid); } catch (e) {}
+  setNs(uid);
+  const accts = loadAccts();
+  if (password) accts[uid] = { username, token, verifier: await hashPin(password) };
+  else accts[uid] = { username, token, verifier: (accts[uid] && accts[uid].verifier) || '' };
+  saveAccts(accts);
+  $('authPass').value = '';
+  hideAuth(); afterLogin(true);
+  await syncNow(); // pull this panel first…
+  await adoptLegacyIfEmpty(); // …then offer to move this device's old data in
+  await syncNow();
+}
+async function adoptLegacyIfEmpty() {
+  // First login on a device that still holds pre-account data: offer to move it
+  // (with fresh ids so rows can never collide with other accounts) into this panel.
+  if (!ACC.uid) return;
+  if (loadEntries().length || loadNotes().length || loadProducts().length) return;
+  let legE = [];
+  try { legE = JSON.parse(localStorage.getItem('sn_entries')) || []; } catch (e) {}
+  if (!legE.length) return;
+  if (!confirm('Pindahkan ' + legE.length + ' penjualan lama di HP ini ke akun ' + ACC.username + '?')) return;
+  const get = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+  const notes = get('sn_notes') || [];
+  const nmap = {}; notes.forEach(n => { nmap[n.id] = uid(); });
+  saveEntries(legE.map(e => ({ ...e, id: uid(), note_id: nmap[e.note_id] || '' })));
+  saveNotes(notes.map(n => ({ ...n, id: nmap[n.id] })));
+  const states = get('sn_states') || {}, ns2 = {};
+  Object.keys(states).forEach(k => { if (nmap[k]) ns2[nmap[k]] = states[k]; });
+  localStorage.setItem(LS_ST, JSON.stringify(ns2));
+  saveProducts((get('sn_products') || []).map(p => ({ ...p, id: uid() })));
+  const legS = get('sn_settings');
+  if (legS) { try { Object.assign(settings, legS); } catch (e) {} localStorage.setItem(LS_S, JSON.stringify(settings)); }
+  localStorage.setItem(LS_DSET, '1');
+  localStorage.removeItem(LS_MG); migrate(); // marks everything dirty → uploaded next sync
+  refreshTitles(); renderAll();
+  toast('Data lama siap diunggah ✓', 'ok');
 }
 async function doSetup() {
   if (SITE_ENFORCED) { authErr('Kunci diatur di repo secret.'); return; }
@@ -267,42 +416,103 @@ async function doLogin() {
   sessionKey = k; sessionStorage.setItem('sn_key', k); sessionStorage.setItem('sn_unlocked', '1');
   hideAuth(); afterLogin(); toast('Terbuka ✓', 'ok');
 }
-function doLogout() {
+async function doLogout() {
+  if (ACC.uid) {
+    if (ACC.token && SYNC_ON && navigator.onLine) {
+      try { await fetch(SYNC_URL + '/api/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + ACC.token } }); } catch (e) {}
+    }
+    ACC = { uid: '', username: '', token: '' };
+    try { localStorage.setItem(LS_CUR, ''); } catch (e) {}
+    setNs('');
+  }
   sessionStorage.removeItem('sn_unlocked'); sessionStorage.removeItem('sn_key');
   sessionKey = null;
   showAuth(); checkGate();
 }
-function afterLogin() {
+function afterLogin(skipSync) {
   loadSettings(); refreshTitles(); migrate();
   viewDate = todayStr();
-  if (!viewShift) viewShift = 'pagi';
+  if (!shiftEnabled(viewShift)) viewShift = firstShift();
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
   setShift(viewShift);
-  renderAll(); syncNow();
+  renderAll();
+  if (!skipSync) syncNow();
 }
 
 /* ---------- settings ---------- */
-function loadSettings() { try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_S)) || {}); } catch (e) {} return settings; }
+/* ---------- settings (incl. per-account shift toggles) ---------- */
+const SHIFT_KEYS = ['pagi', 'siang', 'lembur'];
+function normShifts(v) {
+  const d = { pagi: true, siang: true, lembur: true };
+  if (v && typeof v === 'object') SHIFT_KEYS.forEach(k => { d[k] = v[k] !== false; });
+  if (!d.pagi && !d.siang && !d.lembur) d.pagi = true; // at least one stays on
+  return d;
+}
+function shiftEnabled(s) { return normShifts(settings.shifts)[normShift(s)]; }
+function firstShift() { const c = normShifts(settings.shifts); return SHIFT_KEYS.find(k => c[k]) || 'pagi'; }
+function loadSettings() {
+  settings.shop_name = 'My Sales Notes'; settings.currency = 'Rp'; settings.shifts = null;
+  try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_S)) || {}); } catch (e) {}
+  settings.shifts = normShifts(settings.shifts);
+  return settings;
+}
 function refreshTitles() {
   $('shopTitle').textContent = settings.shop_name || 'My Sales Notes';
   $('authShopName').textContent = settings.shop_name || 'My Sales Notes';
   document.title = (settings.shop_name || 'My Sales Notes') + ' — Kasir';
   $('sShop').value = settings.shop_name || ''; $('sCur').value = settings.currency || 'Rp';
+  renderShiftToggles();
+  const acctLine = $('acctLine');
+  if (acctLine) acctLine.innerHTML = ACC.uid
+    ? ('Masuk sebagai <b>' + esc(ACC.username) + '</b> · panel pribadi tersinkron ke semua perangkat.')
+    : 'Mode kunci lama — daftar/masuk untuk panel pribadi per akun.';
+}
+function renderShiftToggles() {
+  const c = normShifts(settings.shifts);
+  SHIFT_KEYS.forEach(k => {
+    const b = $('shiftTg_' + k);
+    if (b) b.className = c[k] ? 'on' : 'off';
+  });
+}
+function toggleShift(k) {
+  const c = normShifts(settings.shifts);
+  c[k] = !c[k];
+  if (!c.pagi && !c.siang && !c.lembur) { toast('Minimal 1 shift aktif', 'err'); return; }
+  settings.shifts = c;
+  saveSettings();
 }
 function saveSettings() {
   settings.shop_name = $('sShop').value.trim() || 'My Sales Notes';
   settings.currency = $('sCur').value.trim() || 'Rp';
+  settings.shifts = normShifts(settings.shifts);
   localStorage.setItem(LS_S, JSON.stringify(settings));
   localStorage.setItem(LS_SU, nowIso());
   try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
+  if (!shiftEnabled(viewShift)) setShift(firstShift());
   refreshTitles(); renderAll(); syncSoon(); toast('Tersimpan ✓ — dikirim ke semua perangkat', 'ok');
 }
 async function changeKey() {
-  if (SITE_ENFORCED) { toast('Kunci situs diatur di GitHub secret.', 'err'); return; }
   const o = $('kOld').value, n = $('kNew').value.trim();
-  if (!o || n.length < 4) { toast('Kunci lama + baru (min 4) wajib', 'err'); return; }
+  if (!o || n.length < 4) { toast('Password lama + baru (min 4) wajib', 'err'); return; }
+  if (ACC.uid) {
+    // Account mode: change login password server-side (revokes other devices).
+    if (!SYNC_ON || !navigator.onLine) { toast('Butuh koneksi untuk ganti password', 'err'); return; }
+    try {
+      const r = await fetch(SYNC_URL + '/api/password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + ACC.token },
+        body: JSON.stringify({ old_password: o, new_password: n }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) { toast(j.error === 'wrong_password' ? 'Password lama salah' : 'Gagal ganti password', 'err'); return; }
+      const accts = loadAccts();
+      if (accts[ACC.uid]) { accts[ACC.uid].verifier = await hashPin(n); saveAccts(accts); }
+      $('kOld').value = ''; $('kNew').value = ''; toast('Password diganti ✓', 'ok');
+    } catch (e) { toast('Offline — coba lagi nanti', 'err'); }
+    return;
+  }
+  if (SITE_ENFORCED) { toast('Kunci situs diatur di GitHub secret.', 'err'); return; }
   if ((await hashPin(o)) !== localStorage.getItem(LS_P)) { toast('Kunci lama salah', 'err'); return; }
   localStorage.setItem(LS_P, await hashPin(n));
   $('kOld').value = ''; $('kNew').value = ''; toast('Kunci diganti ✓', 'ok');
@@ -327,10 +537,16 @@ function setPay(p) {
   $('payQris').className = p === 'qris' ? 'active-qris' : '';
 }
 function setShift(s) {
-  viewShift = normShift(s);
-  if ($('shiftPagi')) $('shiftPagi').className = viewShift === 'pagi' ? 'active-shift' : '';
-  if ($('shiftSiang')) $('shiftSiang').className = viewShift === 'siang' ? 'active-shift' : '';
-  if ($('shiftLembur')) $('shiftLembur').className = viewShift === 'lembur' ? 'active-shift' : '';
+  let sh = normShift(s);
+  if (!shiftEnabled(sh)) sh = firstShift();
+  viewShift = sh;
+  const ids = { pagi: 'shiftPagi', siang: 'shiftSiang', lembur: 'shiftLembur' };
+  SHIFT_KEYS.forEach(k => {
+    const el = $(ids[k]);
+    if (!el) return;
+    el.style.display = shiftEnabled(k) ? '' : 'none';
+    el.className = viewShift === k ? 'active-shift' : '';
+  });
   try { if (viewDate) renderSell(); } catch (e) {}
 }
 
@@ -393,6 +609,7 @@ function saveManual() {
   if (!item) { toast('Nama barang wajib', 'err'); $('fItem').focus(); return; }
   if (!(qty > 0)) { toast('Qty harus > 0', 'err'); $('fQty').focus(); return; }
   if (!isFinite(price) || price < 0) { toast('Harga wajib (0 boleh)', 'err'); $('fPrice').focus(); return; }
+  if (!shiftEnabled(viewShift)) { setShift(firstShift()); toast('Shift dialihkan ke ' + shiftLabel(viewShift), 'info'); }
   const note = writableNote(viewDate, viewShift);
   const now = nowIso();
   const sub = Math.round(qty * price * 100) / 100;
@@ -815,13 +1032,13 @@ async function postShiftReport(date, shift) {
   // Sends via Worker proxy (bot token stays server-side). Returns true on success.
   // Uses rich HTML formatting so Telegram renders bold/italic properly.
   if (!SYNC_ON) return false;
-  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') return false;
+  if (!authed()) return false;
   if (!navigator.onLine) return false;
   const { html } = buildShiftReportHtml(date, shift);
   try {
     const r = await fetch(SYNC_URL + '/api/report', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken() },
       body: JSON.stringify({ date, shift: normShift(shift), text: html, parse_mode: 'HTML' }),
     });
     return r.ok;
@@ -832,7 +1049,7 @@ async function sendShiftTelegram() {
   const { list } = buildShiftReport(date, viewShift);
   if (!list.length) { toast('Shift ini masih kosong', 'err'); return; }
   if (!SYNC_ON) { toast('Sync mati — Telegram butuh Worker', 'err'); return; }
-  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') { toast('Buka kunci dulu', 'err'); return; }
+  if (!authed()) { toast('Masuk dulu', 'err'); return; }
   toast('Mengirim ke Telegram…', 'info', 1500);
   const ok = await postShiftReport(date, viewShift);
   toast(ok ? 'Terkirim ke Telegram ✓ ' + shiftLabel(viewShift) : 'Gagal kirim — cek koneksi / bot', ok ? 'ok' : 'err');
@@ -877,9 +1094,10 @@ async function importDB() {
     list.push({ id: String(e.id || uid()), note_id: String(e.note_id || ''), date, item, qty, price, subtotal: Math.round(qty * price * 100) / 100, payment, note: '', created_at: e.created_at || stamp, updated_at: stamp, deleted: 0 });
   });
   saveEntries(list);
-  if (j.settings && (j.settings.shop_name || j.settings.currency)) {
-    if (j.settings.shop_name) settings.shop_name = String(j.settings.shop_name).slice(0, 60);
-    if (j.settings.currency) settings.currency = String(j.settings.currency).slice(0, 10);
+  if (j.settings && (j.settings.shop_name || j.settings.currency || j.settings.shifts)) {
+  if (j.settings.shop_name) settings.shop_name = String(j.settings.shop_name).slice(0, 60);
+  if (j.settings.currency) settings.currency = String(j.settings.currency).slice(0, 10);
+  if (j.settings.shifts) settings.shifts = normShifts(j.settings.shifts);
     localStorage.setItem(LS_S, JSON.stringify(settings));
     localStorage.setItem(LS_SU, nowIso());
     try { localStorage.setItem(LS_DSET, '1'); } catch (e) {}
@@ -918,16 +1136,28 @@ function lastOkLabel() {
 function setSyncState(s) {
   const el = $('syncDot');
   if (!el) return;
-  const map = { ok: ['✓ synced', '#34d399'], sync: ['… syncing', '#fbbf24'], offline: ['✕ offline', '#f87171'], off: ['– sync off', '#8b96b3'], key: ['! kunci salah', '#f87171'] };
+  const map = { ok: ['✓ synced', '#34d399'], sync: ['… syncing', '#fbbf24'], offline: ['✕ offline', '#f87171'], off: ['– sync off', '#8b96b3'], key: ['! masuk ulang', '#f87171'] };
   const [t, c] = map[s] || map.off;
   el.textContent = t; el.style.color = c;
   el.title = s === 'ok' ? ('terakhir sinkron ' + lastOkLabel())
     : s === 'offline' ? ('offline — tersimpan di HP ini, terkirim nanti · ' + pendingCount() + ' menunggu · terakhir ok ' + lastOkLabel())
     : t;
 }
+function sessionExpired() {
+  setSyncState('key');
+  syncing = false;
+  if (ACC.uid) {
+    // Token revoked/expired: keep username+verifier so offline unlock still works.
+    ACC.token = '';
+    const accts = loadAccts();
+    if (accts[ACC.uid]) { accts[ACC.uid].token = ''; saveAccts(accts); }
+    toast('Sesi berakhir — masuk lagi', 'err');
+    showAuth(); checkGate();
+  }
+}
 async function syncNow() {
   if (!SYNC_ON) { setSyncState('off'); return; }
-  if (!sessionKey || sessionStorage.getItem('sn_unlocked') !== '1') return;
+  if (!authed()) return;
   if (syncing || !navigator.onLine) { if (!navigator.onLine) setSyncState('offline'); return; }
   syncing = true; setSyncState('sync');
   try {
@@ -943,14 +1173,14 @@ async function syncNow() {
       const stateChanges = dirtyStates.filter(d => states[d]).map(d => ({ id: d, ...states[d] })).slice(0, 200);
       const prodChanges = loadProducts().filter(p => dirtyProds.includes(p.id)).slice(0, 200);
       const settingsPayload = dirtySettings
-        ? { value: JSON.stringify({ shop_name: settings.shop_name, currency: settings.currency }), updated_at: localStorage.getItem(LS_SU) || nowIso() }
+        ? { value: JSON.stringify({ shop_name: settings.shop_name, currency: settings.currency, shifts: normShifts(settings.shifts) }), updated_at: localStorage.getItem(LS_SU) || nowIso() }
         : undefined;
       const r = await fetch(SYNC_URL + '/api/push', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionKey },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken() },
         body: JSON.stringify({ changes, notes: noteChanges, states: stateChanges, products: prodChanges, settings: settingsPayload }),
       });
-      if (r.status === 401) { setSyncState('key'); syncing = false; return; }
+      if (r.status === 401) { sessionExpired(); return; }
       if (!r.ok) throw new Error('push ' + r.status);
       localStorage.setItem(LS_D, JSON.stringify(dirtyIds.filter(id => !changes.some(e => e.id === id))));
       localStorage.setItem(LS_DN, JSON.stringify(dirtyNotes.filter(id => !noteChanges.some(x => x.id === id))));
@@ -959,8 +1189,8 @@ async function syncNow() {
       if (dirtySettings) localStorage.setItem(LS_DSET, '0');
     }
     const since = localStorage.getItem(LS_LP) || '1970-01-01T00:00:00';
-    const r2 = await fetch(SYNC_URL + '/api/pull?since=' + encodeURIComponent(since), { headers: { 'Authorization': 'Bearer ' + sessionKey } });
-    if (r2.status === 401) { setSyncState('key'); syncing = false; return; }
+    const r2 = await fetch(SYNC_URL + '/api/pull?since=' + encodeURIComponent(since), { headers: { 'Authorization': 'Bearer ' + authToken() } });
+    if (r2.status === 401) { sessionExpired(); return; }
     if (!r2.ok) throw new Error('pull ' + r2.status);
     const { entries: remote, notes: remoteNotes, states: remoteStates, products: remoteProds, settings: remoteSettings } = await r2.json();
     let newest = since;
@@ -1006,6 +1236,7 @@ async function syncNow() {
             const v = JSON.parse(rs.value || '{}');
             if (v.shop_name) settings.shop_name = String(v.shop_name).slice(0, 60);
             if (v.currency) settings.currency = String(v.currency).slice(0, 10);
+            if (v.shifts) settings.shifts = normShifts(v.shifts);
             localStorage.setItem(LS_S, JSON.stringify(settings));
             localStorage.setItem(LS_SU, rs.updated_at);
             localStorage.setItem(LS_DSET, '0');
@@ -1033,7 +1264,15 @@ $('btnSetup').addEventListener('click', doSetup);
 $('loginKey').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 $('setupKey2').addEventListener('keydown', e => { if (e.key === 'Enter') doSetup(); });
 $('btnLogin').addEventListener('click', doLogin);
+$('authTabLogin').addEventListener('click', () => setAuthMode('login'));
+$('authTabReg').addEventListener('click', () => setAuthMode('register'));
+$('btnAuthGo').addEventListener('click', doAccountAuth);
+$('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') doAccountAuth(); });
+$('authUser').addEventListener('keydown', e => { if (e.key === 'Enter') $('authPass').focus(); });
 $('btnLogout').addEventListener('click', doLogout);
+$('shiftTg_pagi').addEventListener('click', () => toggleShift('pagi'));
+$('shiftTg_siang').addEventListener('click', () => toggleShift('siang'));
+$('shiftTg_lembur').addEventListener('click', () => toggleShift('lembur'));
 $('btnPrevDay').addEventListener('click', () => { const [y, m, d] = viewDate.split('-').map(Number); viewDate = localDay(new Date(y, m - 1, d - 1)); $('viewDate').value = viewDate; renderSell(); });
 $('btnNextDay').addEventListener('click', () => { const [y, m, d] = viewDate.split('-').map(Number); viewDate = localDay(new Date(y, m - 1, d + 1)); $('viewDate').value = viewDate; renderSell(); });
 $('btnToday').addEventListener('click', () => { viewDate = todayStr(); $('viewDate').value = viewDate; renderSell(); });
@@ -1064,18 +1303,24 @@ if ($('btnCopyReport')) $('btnCopyReport').addEventListener('click', copyShiftRe
 
 /* ---------- init ---------- */
 (function init() {
+  // Restore this device's current account first — all storage below is namespaced.
+  try {
+    const cur = localStorage.getItem(LS_CUR) || '';
+    const accts = loadAccts();
+    if (cur && accts[cur] && accts[cur].token) ACC = { uid: cur, username: accts[cur].username, token: accts[cur].token };
+    setNs(ACC.uid);
+  } catch (e) { setNs(''); }
   loadSettings(); migrate();
   viewDate = todayStr();
-  viewShift = 'pagi';
+  viewShift = firstShift();
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
-  setPay('cash'); setShift('pagi'); updSub();
+  setPay('cash'); setShift(viewShift); updSub();
   setSyncState(SYNC_ON ? 'offline' : 'off');
-  if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
   refreshTitles();
   checkGate();
-  if (sessionStorage.getItem('sn_unlocked') === '1') { renderAll(); syncNow(); }
-  setInterval(() => { if (sessionStorage.getItem('sn_unlocked') === '1') syncNow(); }, 30000);
+  if (authed()) { renderAll(); syncNow(); }
+  setInterval(() => { if (authed()) syncNow(); }, 30000);
   window.addEventListener('online', syncNow);
 })();

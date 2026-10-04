@@ -2,9 +2,12 @@
 
 No cashier system, no barcode, no stock. Just your own sales notes. Web app only.
 
-**Live site:** https://tadakuro.github.io/sales-notes/ 🔒 key-locked
+**Live site:** https://tadakuro.github.io/sales-notes/
 
-- **one site key** opens the gate on every device (stored as the `SITE_KEY` GitHub secret — only its hash is baked into the site, never the key itself)
+- **accounts**: visitors Daftar (register) / Masuk (login) with username + password —
+  each account gets its own **private panel** (isolated `account_id` in D1 +
+  per-account localStorage namespace), synced across that account's devices.
+  Old site-key installs keep working against the same Worker (legacy shared panel).
 - each day auto-starts a **fresh note** — entries auto-save with daily total
 - entry fields: **item name, quantity, price, date, payment (Cash / QRIS)**, optional note
 - totals: day total + Cash vs QRIS breakdown, monthly history, export/import JSON
@@ -23,12 +26,19 @@ No cashier system, no barcode, no stock. Just your own sales notes. Web app only
    locked totals per month. **Reopen** to edit again. Deleting a note removes
    its sales (synced).
 
+## Shifts (Pagi / Siang / Lembur)
+Lainnya → **⏰ Shift aktif**: toggle each shift on/off (min. 1 stays on).
+Disabled shifts disappear from the Jual form; old data stays and still counts in
+Stats/Riwayat. The toggle syncs per account, so all your devices follow.
+
 ## Multiple devices — auto sync
 Sales sync automatically through Cloudflare Workers + D1 (free tier):
-open the site on any device, enter the site key, everything appears.
+open the site on any device, log in to your account, everything appears.
 Works offline too — entries queue locally and sync when back online
 (header shows ✓ synced / … syncing / ✕ offline).
 Manual Export/Import JSON remains as backup.
+First login on a device that still holds pre-account data offers to move it
+(with fresh ids) into your new private panel.
 
 ## Cloud sync setup (repo owner, one time)
 1. Cloudflare account → get **Account ID** (domain overview page, right sidebar).
@@ -46,8 +56,30 @@ wrangler deploy                           # note the https://….workers.dev URL
 4. Point the site at it (empty = offline-only mode):
 `gh secret set SYNC_URL -R tadakuro/sales-notes` with the worker URL.
 Pushes redeploy the site automatically (~1 min).
+5. After pulling worker updates, apply DB migrations in order then redeploy:
+```bash
+cd worker
+for f in migrate-02.sql migrate-03.sql migrate-04.sql migrate-05.sql migrate-06.sql; do
+  wrangler d1 execute sales-notes --file=$f
+done
+wrangler deploy
+```
+(`migrate-06.sql` adds `accounts`/`sessions` + per-row `account_id`. Fresh DBs
+can use `schema.sql` directly. Re-run deploys are safe — all statements are
+`IF NOT EXISTS`; `ALTER TABLE … ADD COLUMN` fails harmlessly if already applied,
+so run each file and ignore "duplicate column" errors.)
 
-## Site key (repo owner)
+## Accounts (repo owner)
+- Registration is open: anyone with the site URL can Daftar. Endpoints are
+  rate-limited per IP (`/api/register` 10/hour, `/api/login` 30/10 min);
+  passwords are PBKDF2-SHA256 (60k rounds) salted hashes — never plaintext.
+- Each account's rows are filtered by `account_id` on every pull/push; the upsert
+  guard (`entries.account_id = excluded.account_id`) blocks cross-account
+  overwrites even on id collision.
+- Legacy `SITE_KEY` bearer still works and maps to the old shared panel,
+  so pre-account app versions keep syncing.
+
+## Site key (repo owner, legacy mode only)
 - Set it: `gh secret set SITE_KEY -R tadakuro/sales-notes` (prompts privately), or repo → Settings → Secrets → Actions → New secret `SITE_KEY`.
 - Change/rotate it the same way — the `Deploy to Pages` workflow rebuilds the site automatically (~1 min).
 - The workflow hashes `sn::<key>` with SHA-256 and injects only the hash into `site/app.js`. The raw key never lands in git.
