@@ -4,9 +4,11 @@ No cashier system, no barcode, no stock. Just your own sales notes. Web app only
 
 **Live site:** https://tadakuro.github.io/sales-notes/
 
-- **accounts**: visitors Daftar (register) / Masuk (login) with username + password —
+- **accounts (APK only)**: visitors Daftar (register) / Masuk (login) with username + password —
   each account gets its own **private panel** (isolated `account_id` in D1 +
   per-account localStorage namespace), synced across that account's devices.
+  The **web version keeps the classic site-key gate** — one codebase, split by
+  a build-time flag (`APK_BUILD`: Pages injects `0`, APK injects `1`).
   Old site-key installs keep working against the same Worker (legacy shared panel).
 - each day auto-starts a **fresh note** — entries auto-save with daily total
 - entry fields: **item name, quantity, price, date, payment (Cash / QRIS)**, optional note

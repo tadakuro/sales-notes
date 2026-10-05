@@ -31,6 +31,8 @@ jobs:
           URL_ESC=$(printf '%s' "${SYNC_URL:-}" | sed 's/[&|]/\\&/g')
           sed -i "s|__SYNC_URL__|${URL_ESC}|g" site/app.js
           if grep -q "__SYNC_URL__" site/app.js; then echo "sync url injection failed"; exit 1; fi
+          sed -i "s/__APK_BUILD__/0/" site/app.js
+          if grep -q "__APK_BUILD__" site/app.js; then echo "apk flag injection failed"; exit 1; fi
           sed -i "s/__BUILD_ID__/$GITHUB_SHA/" site/index.html
           if grep -q "__BUILD_ID__" site/index.html; then echo "build id injection failed"; exit 1; fi
           echo "injected ok"
