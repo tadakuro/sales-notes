@@ -79,6 +79,19 @@ so run each file and ignore "duplicate column" errors.)
 - Legacy `SITE_KEY` bearer still works and maps to the old shared panel,
   so pre-account app versions keep syncing.
 
+## Read API (verify data anytime)
+All scoped to the caller's account (`SITE_KEY` = legacy shared panel).
+Get a token: browser DevTools → Application → Local Storage → `sn_accounts`
+(copy any account's `token`), or use the raw `SITE_KEY` for the legacy panel.
+```bash
+W=https://sales-notes-sync.topia.workers.dev
+AUTH="Authorization: Bearer <token-atau-site-key>"
+curl -s "$W/api/sales?date=2026-10-04" -H "$AUTH"          # one day + summary
+curl -s "$W/api/sales?date=2026-10-04&shift=pagi" -H "$AUTH"
+curl -s "$W/api/history?month=2026-10" -H "$AUTH"          # per-day totals
+curl -s "$W/api/stats?month=2026-10" -H "$AUTH"            # totals + top items
+```
+
 ## Site key (repo owner, legacy mode only)
 - Set it: `gh secret set SITE_KEY -R tadakuro/sales-notes` (prompts privately), or repo → Settings → Secrets → Actions → New secret `SITE_KEY`.
 - Change/rotate it the same way — the `Deploy to Pages` workflow rebuilds the site automatically (~1 min).

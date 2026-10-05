@@ -215,6 +215,71 @@ export default {
     }
 
     try {
+      // ---- read-only data APIs (same account scope as pull) ----
+      // GET /api/sales?date=YYYY-MM-DD[&shift=pagi|siang|lembur] — one day's sales + summary.
+      if (req.method === 'GET' && url.pathname === '/api/sales') {
+        const date = url.searchParams.get('date') || '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'bad_date' }, 400);
+        const sh = normShift(url.searchParams.get('shift') || '');
+        const wantShift = url.searchParams.get('shift') ? sh : '';
+        const { results } = await env.DB.prepare(
+          `SELECT e.id, e.note_id, e.date, e.item, e.qty, e.price, e.subtotal,
+                  e.payment, e.note, e.updated_at, e.deleted,
+                  COALESCE(n.shift, 'pagi') AS shift, COALESCE(n.title, '') AS note_title
+           FROM entries e LEFT JOIN notes n ON n.id = e.note_id AND n.account_id = e.account_id
+           WHERE e.account_id = ? AND e.date = ? AND e.deleted = 0
+           ORDER BY e.updated_at ASC LIMIT 2000`
+        ).bind(AID, date).all();
+        const list = (results || []).filter(e => !wantShift || normShift(e.shift) === wantShift);
+        let total = 0, cash = 0, qris = 0, cc = 0, qc = 0;
+        list.forEach(e => {
+          total += e.subtotal;
+          if (e.payment === 'qris') { qris += e.subtotal; qc++; } else { cash += e.subtotal; cc++; }
+        });
+        return json({ ok: true, date, shift: wantShift || null, entries: list,
+          summary: { total, count: list.length, cash_total: cash, cash_count: cc, qris_total: qris, qris_count: qc } });
+      }
+
+      // GET /api/history?month=YYYY-MM — per-day totals for a month (default: current).
+      if (req.method === 'GET' && url.pathname === '/api/history') {
+        let month = url.searchParams.get('month') || '';
+        if (!/^\d{4}-\d{2}$/.test(month)) month = new Date().toISOString().slice(0, 7);
+        const { results } = await env.DB.prepare(
+          `SELECT date, COUNT(*) AS count, SUM(subtotal) AS total,
+                  SUM(CASE WHEN payment = 'qris' THEN subtotal ELSE 0 END) AS qris_total,
+                  SUM(CASE WHEN payment != 'qris' THEN subtotal ELSE 0 END) AS cash_total
+           FROM entries
+           WHERE account_id = ? AND date LIKE ? AND deleted = 0
+           GROUP BY date ORDER BY date ASC LIMIT 62`
+        ).bind(AID, month + '-%').all();
+        return json({ ok: true, month, days: results || [] });
+      }
+
+      // GET /api/stats?month=YYYY-MM — month totals + averages + top items.
+      if (req.method === 'GET' && url.pathname === '/api/stats') {
+        let month = url.searchParams.get('month') || '';
+        if (!/^\d{4}-\d{2}$/.test(month)) month = new Date().toISOString().slice(0, 7);
+        const agg = await env.DB.prepare(
+          `SELECT COUNT(*) AS count, COALESCE(SUM(subtotal), 0) AS total,
+                  COALESCE(SUM(CASE WHEN payment = 'qris' THEN subtotal ELSE 0 END), 0) AS qris_total,
+                  COALESCE(SUM(CASE WHEN payment != 'qris' THEN subtotal ELSE 0 END), 0) AS cash_total,
+                  COUNT(DISTINCT date) AS days_active
+           FROM entries WHERE account_id = ? AND date LIKE ? AND deleted = 0`
+        ).bind(AID, month + '-%').first();
+        const top = await env.DB.prepare(
+          `SELECT item, SUM(qty) AS qty, SUM(subtotal) AS total, COUNT(*) AS trx
+           FROM entries WHERE account_id = ? AND date LIKE ? AND deleted = 0
+           GROUP BY item ORDER BY total DESC LIMIT 10`
+        ).bind(AID, month + '-%').all();
+        const a = agg || { count: 0, total: 0, qris_total: 0, cash_total: 0, days_active: 0 };
+        return json({ ok: true, month,
+          total: a.total, count: a.count, cash_total: a.cash_total, qris_total: a.qris_total,
+          days_active: a.days_active,
+          avg_per_day: a.days_active ? Math.round(a.total / a.days_active) : 0,
+          avg_per_trx: a.count ? Math.round(a.total / a.count) : 0,
+          top_items: (top && top.results) || [] });
+      }
+
       // Pull everything changed since a timestamp (tombstones + notes + lock states + products).
       if (req.method === 'GET' && url.pathname === '/api/pull') {
         const since = url.searchParams.get('since') || '1970-01-01T00:00:00';
