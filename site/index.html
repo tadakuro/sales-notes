@@ -67,13 +67,8 @@
 
     <div class="card">
       <h2>+ Tambah penjualan</h2>
-      <p class="muted small">Isi lalu tekan Simpan — langsung masuk catatan shift ini</p>
-      <label class="lbl">Shift *</label>
-      <div class="shift-seg">
-        <button id="shiftPagi" class="active-shift">☀️ Pagi</button>
-        <button id="shiftSiang">🌤️ Siang</button>
-        <button id="shiftLembur">🌙 Lembur</button>
-      </div>
+      <p class="muted small">Isi lalu tekan Simpan — langsung masuk <b id="activeShiftLabel">☀️ Pagi</b></p>
+      <p class="muted small">Untuk ganti shift, kunci aplikasi lalu masuk lagi.</p>
       <label class="lbl">Nama barang *<input id="fItem" placeholder="mis. Kopi susu" autocomplete="off"></label>
       <div class="form-2col">
         <label class="lbl">Qty *<input id="fQty" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
@@ -210,6 +205,15 @@
     <div id="authLoginPane" class="stack">
       <label class="lbl">Kunci akses<input id="loginKey" type="password" placeholder="••••••" autocomplete="current-password"></label>
       <button id="btnLogin" class="btn primary big">Buka</button>
+    </div>
+    <div class="stack" id="authShiftWrap">
+      <label class="lbl">Shift kerja *</label>
+      <div class="shift-seg">
+        <button id="authShiftPagi" type="button" class="active-shift">☀️ Pagi</button>
+        <button id="authShiftSiang" type="button">🌤️ Siang</button>
+        <button id="authShiftLembur" type="button">🌙 Lembur</button>
+      </div>
+      <p class="muted small center">Shift dipilih saat masuk — penjualan masuk ke shift ini.</p>
     </div>
     <div id="authErr" class="auth-err hidden"></div>
   </div>

@@ -12,6 +12,7 @@ let settings = { shop_name: 'My Sales Notes', currency: 'Rp' };
 let sessionKey = sessionStorage.getItem('sn_key') || null;
 let viewDate = null;
 let viewShift = 'pagi';
+let authShift = 'pagi';
 let payMethod = 'cash';
 let editPid = null;
 
@@ -31,6 +32,7 @@ const LS_D = 'sn_dirty', LS_DN = 'sn_dirty_notes', LS_DS = 'sn_dirty_states';
 const LS_ST = 'sn_states', LS_LP = 'sn_last_pull', LS_MG = 'sn_migrated';
 const LS_PD = 'sn_products', LS_DP = 'sn_dirty_products';
 const LS_SU = 'sn_settings_updated', LS_DSET = 'sn_dirty_settings';
+const LS_SH = 'sn_last_shift', SS_SH = 'sn_shift';
 const loadEntries = () => { try { return JSON.parse(localStorage.getItem(LS_E)) || []; } catch (e) { return []; } };
 const saveEntries = l => localStorage.setItem(LS_E, JSON.stringify(l));
 const loadNotes = () => { try { return JSON.parse(localStorage.getItem(LS_N)) || []; } catch (e) { return []; } };
@@ -235,6 +237,7 @@ function checkGate() {
   const saved = loadSettings();
   $('shopTitle').textContent = saved.shop_name;
   $('authShopName').textContent = saved.shop_name;
+  setAuthShift(loadStoredShift());
   if (SITE_ENFORCED) {
     $('authSetupPane').classList.add('hidden'); $('authLoginPane').classList.remove('hidden');
     $('authHint').textContent = 'Toko ini dikunci — masukkan kunci situs.';
@@ -256,6 +259,7 @@ async function doSetup() {
   localStorage.setItem(LS_P, await hashPin(a));
   sessionKey = a; sessionStorage.setItem('sn_key', a); sessionStorage.setItem('sn_unlocked', '1');
   $('setupKey').value = ''; $('setupKey2').value = '';
+  setShift(authShift);
   hideAuth(); afterLogin(); toast('Kunci dibuat ✓', 'ok');
 }
 async function doLogin() {
@@ -265,7 +269,8 @@ async function doLogin() {
   if ((await hashPin(k)) !== want) { authErr('Kunci salah.'); return; }
   $('loginKey').value = '';
   sessionKey = k; sessionStorage.setItem('sn_key', k); sessionStorage.setItem('sn_unlocked', '1');
-  hideAuth(); afterLogin(); toast('Terbuka ✓', 'ok');
+  setShift(authShift);
+  hideAuth(); afterLogin(); toast('Terbuka ✓ ' + shiftBadge(viewShift), 'ok');
 }
 function doLogout() {
   sessionStorage.removeItem('sn_unlocked'); sessionStorage.removeItem('sn_key');
@@ -275,7 +280,7 @@ function doLogout() {
 function afterLogin() {
   loadSettings(); refreshTitles(); migrate();
   viewDate = todayStr();
-  if (!viewShift) viewShift = 'pagi';
+  viewShift = loadStoredShift();
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
@@ -326,11 +331,31 @@ function setPay(p) {
   $('payCash').className = p === 'cash' ? 'active-cash' : '';
   $('payQris').className = p === 'qris' ? 'active-qris' : '';
 }
+function setAuthShift(s) {
+  authShift = normShift(s);
+  try { localStorage.setItem(LS_SH, authShift); } catch (e) {}
+  if ($('authShiftPagi')) $('authShiftPagi').className = authShift === 'pagi' ? 'active-shift' : '';
+  if ($('authShiftSiang')) $('authShiftSiang').className = authShift === 'siang' ? 'active-shift' : '';
+  if ($('authShiftLembur')) $('authShiftLembur').className = authShift === 'lembur' ? 'active-shift' : '';
+}
+function loadStoredShift() {
+  try {
+    const ss = sessionStorage.getItem(SS_SH);
+    if (ss) return normShift(ss);
+    const ls = localStorage.getItem(LS_SH);
+    if (ls) return normShift(ls);
+  } catch (e) {}
+  return 'pagi';
+}
 function setShift(s) {
   viewShift = normShift(s);
-  if ($('shiftPagi')) $('shiftPagi').className = viewShift === 'pagi' ? 'active-shift' : '';
-  if ($('shiftSiang')) $('shiftSiang').className = viewShift === 'siang' ? 'active-shift' : '';
-  if ($('shiftLembur')) $('shiftLembur').className = viewShift === 'lembur' ? 'active-shift' : '';
+  authShift = viewShift;
+  try {
+    sessionStorage.setItem(SS_SH, viewShift);
+    localStorage.setItem(LS_SH, viewShift);
+  } catch (e) {}
+  setAuthShift(viewShift);
+  if ($('activeShiftLabel')) $('activeShiftLabel').textContent = shiftBadge(viewShift);
   try { if (viewDate) renderSell(); } catch (e) {}
 }
 
@@ -370,6 +395,10 @@ function renderSell() {
       const ss = summarize(se);
       hint.textContent = shiftBadge(viewShift) + ' · ' + (viewDate || todayStr()) + ' · ' + money(ss.total) + ' (' + ss.count + ' sales) — yang dibagikan hanya shift ini.';
     }
+  } catch (e) {}
+  try {
+    const al = $('activeShiftLabel');
+    if (al) al.textContent = shiftBadge(viewShift);
   } catch (e) {}
   renderDayList(list); loadHeader();
 }
@@ -987,9 +1016,9 @@ $('btnToday').addEventListener('click', () => { viewDate = todayStr(); $('viewDa
 $('viewDate').addEventListener('change', e => { if (e.target.value) { viewDate = e.target.value; renderSell(); } });
 $('payCash').addEventListener('click', () => setPay('cash'));
 $('payQris').addEventListener('click', () => setPay('qris'));
-if ($('shiftPagi')) $('shiftPagi').addEventListener('click', () => setShift('pagi'));
-if ($('shiftSiang')) $('shiftSiang').addEventListener('click', () => setShift('siang'));
-if ($('shiftLembur')) $('shiftLembur').addEventListener('click', () => setShift('lembur'));
+if ($('authShiftPagi')) $('authShiftPagi').addEventListener('click', () => setAuthShift('pagi'));
+if ($('authShiftSiang')) $('authShiftSiang').addEventListener('click', () => setAuthShift('siang'));
+if ($('authShiftLembur')) $('authShiftLembur').addEventListener('click', () => setAuthShift('lembur'));
 $('btnSave').addEventListener('click', saveManual);
 $('fQty').addEventListener('input', updSub);
 $('fPrice').addEventListener('input', updSub);
@@ -1013,11 +1042,14 @@ if ($('btnCopyReport')) $('btnCopyReport').addEventListener('click', copyShiftRe
 (function init() {
   loadSettings(); migrate();
   viewDate = todayStr();
-  viewShift = 'pagi';
+  viewShift = loadStoredShift();
+  authShift = viewShift;
   $('viewDate').value = viewDate;
   $('histMonth').value = todayStr().slice(0, 7);
   $('statMonth').value = todayStr().slice(0, 7);
-  setPay('cash'); setShift('pagi'); updSub();
+  setPay('cash'); setAuthShift(authShift);
+  if ($('activeShiftLabel')) $('activeShiftLabel').textContent = shiftBadge(viewShift);
+  updSub();
   setSyncState(SYNC_ON ? 'offline' : 'off');
   if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
   refreshTitles();
