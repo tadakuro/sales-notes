@@ -366,13 +366,28 @@ function loadHeader() {
   const t = summarize(dayEntries(todayStr()));
   $('stToday').textContent = money(t.total);
 }
+let quickSellQuery = '';
 function renderQuickSell() {
   if (!$('quickSellList') || !$('quickSellEmpty')) return;
-  const prods = loadProducts().filter(p => !p.deleted).sort((a, b) => a.name.localeCompare(b.name));
+  const all = loadProducts().filter(p => !p.deleted);
+  const q = (quickSellQuery || '').toLowerCase().trim();
+  const prods = all
+    .filter(p => !q || String(p.name).toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const listEl = $('quickSellList');
   const emptyEl = $('quickSellEmpty');
   listEl.innerHTML = '';
-  emptyEl.classList.toggle('hidden', prods.length > 0);
+  const hasAny = all.length > 0;
+  emptyEl.classList.toggle('hidden', hasAny);
+  if (!hasAny) return;
+  if (prods.length === 0) {
+    const note = document.createElement('div');
+    note.className = 'muted small';
+    note.style.padding = '8px 4px';
+    note.textContent = 'Tidak ada produk cocok dengan pencarian';
+    listEl.appendChild(note);
+    return;
+  }
   prods.forEach(p => {
     const b = document.createElement('button');
     b.type = 'button';
@@ -1059,6 +1074,12 @@ if ($('btnManageQuick')) $('btnManageQuick').addEventListener('click', () => {
   const tabs = document.querySelectorAll('.bottomnav .tab');
   tabs.forEach(t => { if (t.dataset.tab === 'products') t.click(); });
 });
+if ($('quickSellSearch')) {
+  $('quickSellSearch').addEventListener('input', e => {
+    quickSellQuery = e.target.value || '';
+    renderQuickSell();
+  });
+}
 if ($('btnToggleAdd')) {
   $('btnToggleAdd').addEventListener('click', () => {
     const wrap = $('addFormWrap');
