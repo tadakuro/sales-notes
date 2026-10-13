@@ -69,6 +69,11 @@ input[type=date],input[type=month]{min-height:44px}
 .qcard b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qcard span{color:var(--green);font-weight:800;font-size:14px}
 .qcard small{color:var(--muted)}
+.quick-hscroll{display:flex;gap:8px;overflow-x:auto;padding:8px 0;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.qchip{scroll-snap-align:start;flex:0 0 auto;background:#0e1528;border:1.5px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:800;font-size:13px;cursor:pointer;color:var(--ink);white-space:nowrap}
+.qchip:active{transform:scale(.96);border-color:var(--green)}
+.addform-wrap{display:block;margin-top:10px}
+.addform-wrap.collapsed{display:none}
 .empty{background:transparent;border:1.5px dashed var(--line);border-radius:14px;padding:20px;text-align:center;color:var(--muted);font-size:14px}
 
 /* cart */

@@ -65,22 +65,36 @@
       </div>
     </div>
 
+    <div class="card" id="quickSellCard">
+      <div class="row-between">
+        <h2>⚡ Produk cepat</h2>
+        <button id="btnManageQuick" class="btn small ghost">Kelola</button>
+      </div>
+      <div class="quick-hscroll" id="quickSellList"></div>
+      <div id="quickSellEmpty" class="muted small hidden">Belum ada produk. Tambah di tab Produk.</div>
+    </div>
+
     <div class="card">
-      <h2>+ Tambah penjualan</h2>
-      <p class="muted small">Isi lalu tekan Simpan — langsung masuk <b id="activeShiftLabel">☀️ Pagi</b></p>
-      <p class="muted small">Untuk ganti shift, kunci aplikasi lalu masuk lagi.</p>
-      <label class="lbl">Nama barang *<input id="fItem" placeholder="mis. Kopi susu" autocomplete="off"></label>
-      <div class="form-2col">
-        <label class="lbl">Qty *<input id="fQty" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
-        <label class="lbl">Harga *<input id="fPrice" type="number" min="0" step="any" placeholder="0" inputmode="decimal"></label>
+      <button id="btnToggleAdd" class="btn ghost" style="width:100%;text-align:left;font-size:15px;justify-content:space-between;display:flex;align-items:center">
+        <span>+ Tambah penjualan</span>
+        <span id="toggleAddIcon">▾</span>
+      </button>
+      <div id="addFormWrap" class="addform-wrap">
+        <p class="muted small">Isi lalu tekan Simpan — langsung masuk <b id="activeShiftLabel">☀️ Pagi</b></p>
+        <p class="muted small">Untuk ganti shift, kunci aplikasi lalu masuk lagi.</p>
+        <label class="lbl">Nama barang *<input id="fItem" placeholder="mis. Kopi susu" autocomplete="off"></label>
+        <div class="form-2col">
+          <label class="lbl">Qty *<input id="fQty" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+          <label class="lbl">Harga *<input id="fPrice" type="number" min="0" step="any" placeholder="0" inputmode="decimal"></label>
+        </div>
+        <label class="lbl">Pembayaran *</label>
+        <div class="pay-seg">
+          <button id="payCash" class="active-cash">💵 Cash</button>
+          <button id="payQris">📱 QRIS</button>
+        </div>
+        <div class="trow grand"><span>Subtotal</span><b id="fSub">Rp 0</b></div>
+        <button id="btnSave" class="btn primary big">💾 Simpan penjualan</button>
       </div>
-      <label class="lbl">Pembayaran *</label>
-      <div class="pay-seg">
-        <button id="payCash" class="active-cash">💵 Cash</button>
-        <button id="payQris">📱 QRIS</button>
-      </div>
-      <div class="trow grand"><span>Subtotal</span><b id="fSub">Rp 0</b></div>
-      <button id="btnSave" class="btn primary big">💾 Simpan penjualan</button>
     </div>
 
   </section>

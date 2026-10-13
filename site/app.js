@@ -366,7 +366,29 @@ function loadHeader() {
   const t = summarize(dayEntries(todayStr()));
   $('stToday').textContent = money(t.total);
 }
+function renderQuickSell() {
+  if (!$('quickSellList') || !$('quickSellEmpty')) return;
+  const prods = loadProducts().filter(p => !p.deleted).sort((a, b) => a.name.localeCompare(b.name));
+  const listEl = $('quickSellList');
+  const emptyEl = $('quickSellEmpty');
+  listEl.innerHTML = '';
+  emptyEl.classList.toggle('hidden', prods.length > 0);
+  prods.forEach(p => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'qchip';
+    b.textContent = p.name;
+    b.title = money(p.price);
+    b.addEventListener('click', () => {
+      fillForm(p.name, p.price);
+      try { if ($('fItem')) $('fItem').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    });
+    listEl.appendChild(b);
+  });
+}
+
 function renderSell() {
+  renderQuickSell();
   const list = dayEntries(viewDate || todayStr());
   const s = summarize(list);
   $('totalLabel').textContent = 'Total · ' + (viewDate || todayStr());
@@ -1033,6 +1055,19 @@ $('btnSaveSettings').addEventListener('click', saveSettings);
 $('btnChangeKey').addEventListener('click', changeKey);
 $('btnExport').addEventListener('click', exportDB);
 $('btnImport').addEventListener('click', importDB);
+if ($('btnManageQuick')) $('btnManageQuick').addEventListener('click', () => {
+  const tabs = document.querySelectorAll('.bottomnav .tab');
+  tabs.forEach(t => { if (t.dataset.tab === 'products') t.click(); });
+});
+if ($('btnToggleAdd')) {
+  $('btnToggleAdd').addEventListener('click', () => {
+    const wrap = $('addFormWrap');
+    if (wrap) wrap.classList.toggle('collapsed');
+    const icon = $('toggleAddIcon');
+    if (icon) icon.textContent = wrap && wrap.classList.contains('collapsed') ? '▸' : '▾';
+    try { localStorage.setItem('sn_add_collapsed', wrap && wrap.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+  });
+}
 if ($('btnShareTelegram')) $('btnShareTelegram').addEventListener('click', sendShiftTelegram);
 if ($('btnShareExcel')) $('btnShareExcel').addEventListener('click', downloadShiftExcel);
 if ($('btnShareFile')) $('btnShareFile').addEventListener('click', shareShiftFile);
@@ -1049,6 +1084,13 @@ if ($('btnCopyReport')) $('btnCopyReport').addEventListener('click', copyShiftRe
   $('statMonth').value = todayStr().slice(0, 7);
   setPay('cash'); setAuthShift(authShift);
   if ($('activeShiftLabel')) $('activeShiftLabel').textContent = shiftBadge(viewShift);
+  try {
+    const collapsed = localStorage.getItem('sn_add_collapsed') === '1';
+    const wrap = $('addFormWrap');
+    const icon = $('toggleAddIcon');
+    if (wrap) wrap.classList.toggle('collapsed', collapsed);
+    if (icon) icon.textContent = collapsed ? '▸' : '▾';
+  } catch (e) {}
   updSub();
   setSyncState(SYNC_ON ? 'offline' : 'off');
   if (SITE_ENFORCED) { $('keyModeHint').textContent = 'Satu kunci situs (GitHub secret SITE_KEY) untuk semua perangkat.'; $('kOld').closest('.lbl').classList.add('hidden'); $('kNew').closest('.lbl').classList.add('hidden'); $('btnChangeKey').classList.add('hidden'); }
