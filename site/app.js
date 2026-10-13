@@ -367,19 +367,40 @@ function loadHeader() {
   $('stToday').textContent = money(t.total);
 }
 let quickSellQuery = '';
+const QUICK_LIMIT = 8;
+/* how often each item was sold (by qty), used to pick the quickest products */
+function productUsage() {
+  const freq = {};
+  try {
+    loadEntries().filter(e => !e.deleted && e.item).forEach(e => {
+      const k = String(e.item).trim().toLowerCase();
+      if (!k) return;
+      freq[k] = (freq[k] || 0) + (Number(e.qty) || 1);
+    });
+  } catch (e) {}
+  return freq;
+}
 function renderQuickSell() {
   if (!$('quickSellList') || !$('quickSellEmpty')) return;
   const all = loadProducts().filter(p => !p.deleted);
   const q = (quickSellQuery || '').toLowerCase().trim();
-  const prods = all
-    .filter(p => !q || String(p.name).toLowerCase().includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const freq = productUsage();
+  const byUse = (a, b) => {
+    const fa = freq[String(a.name).toLowerCase()] || 0;
+    const fb = freq[String(b.name).toLowerCase()] || 0;
+    return fb - fa || a.name.localeCompare(b.name);
+  };
   const listEl = $('quickSellList');
   const emptyEl = $('quickSellEmpty');
   listEl.innerHTML = '';
   const hasAny = all.length > 0;
   emptyEl.classList.toggle('hidden', hasAny);
   if (!hasAny) return;
+  /* efficient: no search -> only the most-used products (not the whole catalog);
+   * typing a query searches the full catalog. */
+  const prods = q
+    ? all.filter(p => String(p.name).toLowerCase().includes(q)).sort(byUse)
+    : all.slice().sort(byUse).slice(0, QUICK_LIMIT);
   if (prods.length === 0) {
     const note = document.createElement('div');
     note.className = 'muted small';
@@ -400,6 +421,14 @@ function renderQuickSell() {
     });
     listEl.appendChild(b);
   });
+  if (!q && all.length > prods.length) {
+    const hint = document.createElement('div');
+    hint.className = 'muted small';
+    hint.style.flexBasis = '100%';
+    hint.style.padding = '6px 4px';
+    hint.textContent = '+' + (all.length - prods.length) + ' produk lain — ketik untuk cari';
+    listEl.appendChild(hint);
+  }
 }
 
 function renderSell() {
