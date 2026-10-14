@@ -113,6 +113,22 @@
         <button id="btnCancelProduct" class="btn ghost hidden">Batal</button>
       </div>
     </div>
+    <div class="card">
+      <div class="row-between">
+        <h2>Kelola</h2>
+        <div class="quick-tools">
+          <button id="btnBulkMode" class="btn small ghost">✅ Pilih banyak</button>
+          <button id="btnDuplicates" class="btn small ghost">🧬 Nama ganda</button>
+        </div>
+      </div>
+      <div id="bulkBar" class="bulkbar hidden">
+        <label class="bulkall"><input type="checkbox" id="bulkAll"> Pilih semua</label>
+        <div class="row2">
+          <button id="btnBulkDelete" class="btn small primary" disabled>🗑 Hapus (0)</button>
+          <button id="btnBulkCancel" class="btn small ghost">Batal</button>
+        </div>
+      </div>
+    </div>
     <div id="productList"></div>
     <div id="productEmpty" class="empty hidden">Belum ada produk. Tambah yang paling laris dulu 👆</div>
   </section>
@@ -206,6 +222,17 @@
 </nav>
 
 <div id="toasts" aria-live="polite"></div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <b id="modalTitle">Judul</b>
+      <button id="modalClose" class="btn small ghost" aria-label="Tutup">✕</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+    <div id="modalFoot" class="modal-foot hidden"></div>
+  </div>
+</div>
 
 <div id="authScreen" class="auth-screen">
   <div class="auth-card">

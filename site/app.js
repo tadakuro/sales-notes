@@ -561,31 +561,164 @@ function delEntry(id) {
 }
 
 /* ---------- PRODUCTS ---------- */
+let bulkMode = false;
+const selectedPids = new Set();
 function renderProducts() {
   if (!$('productList')) return;
   const list = loadProducts().filter(p => !p.deleted).sort((a, b) => a.name.localeCompare(b.name));
   const box = $('productList'); box.innerHTML = '';
   $('productEmpty').classList.toggle('hidden', list.length > 0);
+  [...selectedPids].forEach(id => { if (!list.some(p => p.id === id)) selectedPids.delete(id); });
   list.forEach(p => {
     const d = document.createElement('div');
-    d.className = 'pcard';
-    d.innerHTML = `<div><b>${esc(p.name)}</b><small>${esc(money(p.price))}</small></div>
-      <div class="pact"><button class="btn small">＋</button><button class="btn small ghost">✏️</button><button class="btn small ghost">🗑</button></div>`;
-    const [bAdd, bEdit, bDel] = d.querySelectorAll('button');
-    bAdd.addEventListener('click', () => {
-      fillForm(p.name, p.price);
-      document.querySelector('.bottomnav .tab[data-tab=sell]').click();
-    });
-    bEdit.addEventListener('click', () => {
-      editPid = p.id; $('editPid').value = p.id;
-      $('pName').value = p.name; $('pPrice').value = p.price;
-      $('btnSaveProduct').textContent = '💾 Update';
-      $('btnCancelProduct').classList.remove('hidden');
-      $('pName').focus();
-    });
-    bDel.addEventListener('click', () => delProduct(p.id));
+    const selected = selectedPids.has(p.id);
+    d.className = 'pcard' + (bulkMode ? ' selecting' : '') + (selected ? ' selected' : '');
+    if (bulkMode) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'pcheck'; cb.checked = selected;
+      d.appendChild(cb);
+    }
+    const info = document.createElement('div');
+    info.className = 'pinfo';
+    info.innerHTML = `<b>${esc(p.name)}</b><small>${esc(money(p.price))}</small>`;
+    d.appendChild(info);
+    if (bulkMode) {
+      d.addEventListener('click', () => toggleSelectProduct(p.id));
+    } else {
+      const act = document.createElement('div');
+      act.className = 'pact';
+      act.innerHTML = `<button class="btn small">＋</button><button class="btn small ghost">✏️</button><button class="btn small ghost">🗑</button>`;
+      const [bAdd, bEdit, bDel] = act.querySelectorAll('button');
+      bAdd.addEventListener('click', () => {
+        fillForm(p.name, p.price);
+        document.querySelector('.bottomnav .tab[data-tab=sell]').click();
+      });
+      bEdit.addEventListener('click', () => {
+        editPid = p.id; $('editPid').value = p.id;
+        $('pName').value = p.name; $('pPrice').value = p.price;
+        $('btnSaveProduct').textContent = '💾 Update';
+        $('btnCancelProduct').classList.remove('hidden');
+        $('pName').focus();
+      });
+      bDel.addEventListener('click', () => delProduct(p.id));
+      d.appendChild(act);
+    }
     box.appendChild(d);
   });
+  updateBulkBar();
+}
+function setBulkMode(on) {
+  bulkMode = on === undefined ? !bulkMode : !!on;
+  if (!bulkMode) selectedPids.clear();
+  const bar = $('bulkBar'); if (bar) bar.classList.toggle('hidden', !bulkMode);
+  const btn = $('btnBulkMode');
+  if (btn) btn.textContent = bulkMode ? '✅ Selesai' : '✅ Pilih banyak';
+  renderProducts();
+}
+function toggleSelectProduct(id) {
+  if (selectedPids.has(id)) selectedPids.delete(id); else selectedPids.add(id);
+  renderProducts();
+}
+function updateBulkBar() {
+  const n = selectedPids.size;
+  const total = loadProducts().filter(p => !p.deleted).length;
+  const all = $('bulkAll');
+  if (all) { all.checked = n > 0 && n === total; all.indeterminate = n > 0 && n < total; }
+  const del = $('btnBulkDelete');
+  if (del) { del.disabled = n === 0; del.textContent = '🗑 Hapus (' + n + ')'; }
+}
+function bulkToggleAll(checked) {
+  const list = loadProducts().filter(p => !p.deleted);
+  selectedPids.clear();
+  if (checked) list.forEach(p => selectedPids.add(p.id));
+  renderProducts();
+}
+function bulkDelete() {
+  if (!selectedPids.size) return;
+  const n = selectedPids.size;
+  if (!confirm('Hapus ' + n + ' produk terpilih?')) return;
+  const list = loadProducts(), now = nowIso();
+  list.forEach(p => { if (selectedPids.has(p.id)) { p.deleted = 1; p.updated_at = now; markDirtyProduct(p.id); } });
+  saveProducts(list);
+  selectedPids.clear();
+  renderProducts(); renderQuickSell(); syncSoon();
+  toast(n + ' produk dihapus', 'ok');
+}
+
+/* ---------- duplicate-name cleanup ---------- */
+let dupSelected = new Set();
+function productDuplicateGroups() {
+  const map = {};
+  loadProducts().filter(p => !p.deleted).forEach(p => {
+    const k = String(p.name || '').trim().toLowerCase();
+    (map[k] = map[k] || []).push(p);
+  });
+  return Object.keys(map).map(k => map[k]).filter(g => g.length > 1)
+    .sort((a, b) => b.length - a.length || String(a[0].name).localeCompare(String(b[0].name)));
+}
+function openModal(title) {
+  const m = $('modal'); if (!m) return;
+  $('modalTitle').textContent = title;
+  $('modalBody').innerHTML = '';
+  $('modalFoot').innerHTML = '';
+  $('modalFoot').classList.add('hidden');
+  m.classList.remove('hidden');
+}
+function closeModal() { const m = $('modal'); if (m) m.classList.add('hidden'); }
+function openDuplicates() {
+  dupSelected = new Set();
+  openModal('🧬 Produk nama ganda');
+  const body = $('modalBody');
+  const groups = productDuplicateGroups();
+  if (!groups.length) {
+    body.innerHTML = '<p class="muted small" style="padding:6px 2px">Tidak ada produk dengan nama kembar 👍</p>';
+    return;
+  }
+  const note = document.createElement('p');
+  note.className = 'muted small';
+  note.textContent = 'Nama yang sama digabung. Centang produk yang mau dihapus, lalu tekan Hapus terpilih.';
+  body.appendChild(note);
+  groups.forEach(g => {
+    const sec = document.createElement('div');
+    sec.className = 'dup-group';
+    const head = document.createElement('div');
+    head.className = 'dup-head';
+    head.innerHTML = `<b>${esc(g[0].name)}</b> <span class="muted small">×${g.length}</span>`;
+    sec.appendChild(head);
+    g.forEach(p => {
+      const row = document.createElement('label');
+      row.className = 'dup-row';
+      row.innerHTML = `<input type="checkbox" data-pid="${esc(p.id)}">
+        <span class="dup-name">${esc(p.name)}</span>
+        <span class="dup-price">${esc(money(p.price))}</span>
+        <span class="muted small">${esc(String(p.created_at || '').slice(0, 10))}</span>`;
+      const cb = row.querySelector('input');
+      cb.checked = dupSelected.has(p.id);
+      cb.addEventListener('change', () => { cb.checked ? dupSelected.add(p.id) : dupSelected.delete(p.id); updateDupFoot(); });
+      sec.appendChild(row);
+    });
+    body.appendChild(sec);
+  });
+  const foot = $('modalFoot');
+  foot.classList.remove('hidden');
+  foot.innerHTML = `<button id="btnDupDelete" class="btn small primary" disabled>🗑 Hapus terpilih (0)</button>`;
+  $('btnDupDelete').addEventListener('click', deleteDupSelected);
+}
+function updateDupFoot() {
+  const b = $('btnDupDelete');
+  if (b) { b.disabled = dupSelected.size === 0; b.textContent = '🗑 Hapus terpilih (' + dupSelected.size + ')'; }
+}
+function deleteDupSelected() {
+  if (!dupSelected.size) return;
+  const n = dupSelected.size;
+  if (!confirm('Hapus ' + n + ' produk terpilih?')) return;
+  const list = loadProducts(), now = nowIso();
+  list.forEach(p => { if (dupSelected.has(p.id)) { p.deleted = 1; p.updated_at = now; markDirtyProduct(p.id); } });
+  saveProducts(list);
+  dupSelected.clear();
+  closeModal();
+  renderProducts(); renderQuickSell(); syncSoon();
+  toast(n + ' produk dihapus', 'ok');
 }
 function saveProduct() {
   const name = $('pName').value.trim().slice(0, 100);
@@ -1109,6 +1242,13 @@ if ($('quickSellSearch')) {
     renderQuickSell();
   });
 }
+if ($('btnBulkMode')) $('btnBulkMode').addEventListener('click', () => setBulkMode());
+if ($('btnBulkCancel')) $('btnBulkCancel').addEventListener('click', () => setBulkMode(false));
+if ($('btnBulkDelete')) $('btnBulkDelete').addEventListener('click', bulkDelete);
+if ($('bulkAll')) $('bulkAll').addEventListener('change', e => bulkToggleAll(e.target.checked));
+if ($('btnDuplicates')) $('btnDuplicates').addEventListener('click', openDuplicates);
+if ($('modalClose')) $('modalClose').addEventListener('click', closeModal);
+if ($('modal')) $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 if ($('btnToggleAdd')) {
   $('btnToggleAdd').addEventListener('click', () => {
     const wrap = $('addFormWrap');
